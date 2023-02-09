@@ -1,4 +1,4 @@
-FLAGS= -ansi -pedantic -Wall -std=c17
+#FLAGS= -ansi -pedantic -Wall -std=c17
 .SILENT:
 
 all: client.c

@@ -6,7 +6,7 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
-#define MAX_LEN 15
+#define MAX_LEN 20
 struct cfg
 {
     unsigned char id[7];
@@ -25,7 +25,7 @@ struct pdu_udp
 //DECLARATION
 struct cfg get_cfg(int argc, char* argv[]);
 char* get_params(int argc, char* argv[]);
-char* get_line(char* result, char line[], FILE* file);
+char* get_line(char line[], FILE* file);
 
 int main(int argc, char *argv[])
 {
@@ -37,26 +37,44 @@ int main(int argc, char *argv[])
 struct cfg get_cfg(int argc, char *argv[])
 {
     struct cfg user_cfg;
+    char* result[4];
     char* file_name = get_params(argc, argv);
-    char line[MAX_LEN], *result;
-
+    char line[MAX_LEN];
     FILE* file = fopen(file_name, "r");
-    result = get_line(result, line, file);
-    strcpy((char*) user_cfg.id, result);
+     for (int i = 0; i < 4; i++)
+    {   
+        //printf("%i", i);
+        result[i] = get_line(line, file);
+        printf("%s\n", result[i]);
+
+    } 
+
+    
+    for (int i = 0; i < 4; i++)
+    {   
+        printf("%s\n", result[i]);
+
+    }
+        
+        strcpy(user_cfg.id, result[0]);
+        strcpy(user_cfg.mac, result[1]);
+        strcpy(user_cfg.nms_id, result[2]);
+        strcpy(user_cfg.nms_udp_port, result[3]);
+    
     
 
     //perror("An error ocurred when opening ''.cfg file");
     //exit(1);
 };
-char* get_line(char* result, char line[], FILE* file){
-
-    if ((result = fgets(line,MAX_LEN,file)) != NULL)
+char* get_line(char line[], FILE* file){
+    char* word;
+    if ((word = fgets(line,MAX_LEN,file)) != NULL)
         line[strlen(line) - 1] = '\0';
-        result = strtok(line, " ");
-        result = strtok(NULL, " ");
+        word = strtok(line, " ");
+        word = strtok(NULL, " ");
         //strcpy((char*) user_cfg.id, result);
-        printf(".%s.\n", result);
-        return result;
+        //printf("%s\n", result);
+        return word;
     perror("An error ocurred when opening ''.cfg file");
     exit(1);
 };
