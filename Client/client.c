@@ -37,29 +37,36 @@ int main(int argc, char *argv[])
 struct cfg get_cfg(int argc, char *argv[])
 {
     struct cfg user_cfg;
-    char* result[4];
+    char* result;
     char* file_name = get_params(argc, argv);
     char line[MAX_LEN];
     FILE* file = fopen(file_name, "r");
      for (int i = 0; i < 4; i++)
     {   
         //printf("%i", i);
-        result[i] = get_line(line, file);
-        printf("%s\n", result[i]);
-
+        result = get_line(line, file);
+        switch (i)
+        {
+        case 0:
+            strcpy(user_cfg.id, result);
+            break;
+        case 1:
+            strcpy(user_cfg.mac, result);
+        case 2:
+            strcpy(user_cfg.nms_id, result);
+        case 3:
+            strcpy(user_cfg.nms_udp_port, result);
+        default:
+            break;
+        }
+        printf("%s\n", result);
     } 
 
-    
-    for (int i = 0; i < 4; i++)
-    {   
-        printf("%s\n", result[i]);
-
-    }
         
-        strcpy(user_cfg.id, result[0]);
-        strcpy(user_cfg.mac, result[1]);
-        strcpy(user_cfg.nms_id, result[2]);
-        strcpy(user_cfg.nms_udp_port, result[3]);
+        
+        
+        
+        
     
     
 
