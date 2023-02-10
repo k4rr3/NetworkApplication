@@ -27,15 +27,17 @@ struct pdu_udp
 struct cfg get_cfg(int argc, char *argv[]);
 char *get_params(int argc, char *argv[]);
 char *get_line(char line[], FILE *file);
-void show_status();
+void show_status(int status);
+
+
 int main(int argc, char *argv[])
 {
-    // char status = "DISCONNECTED";
+    int status = 0; // 0 == DISCONNECTED
     struct cfg user_cfg = get_cfg(argc, argv);
-    show_status();
+    show_status(status);
 }
 
-void show_status()
+void show_status(int status)
 {
     time_t current_time;
     struct tm *time_info;
@@ -43,7 +45,26 @@ void show_status()
     time(&current_time);
     time_info = localtime(&current_time);
 
-    printf("%02d:%02d:%02d\n", time_info->tm_hour, time_info->tm_min, time_info->tm_sec);
+    
+    printf("%02d:%02d:%02d MSG.  =>  Equip passa a l'estat: ", time_info->tm_hour, time_info->tm_min, time_info->tm_sec);
+    switch (status)
+    {
+    case 0:
+        printf("DISCONNECTED \n");
+        break;
+    case 1:
+        printf("WAIT_REG_RESPONSE \n");
+        break;
+    case 2:
+        printf("WAIT_DB_CHECK \n");
+        break;
+    case 3:
+        printf("REGISTERED \n");
+        break;
+    case 4:
+        printf("SEND_ALIVE \n");
+        break;
+    }
 }
 /* struct cfg get_cfg(int argc, char *argv[])
 {
