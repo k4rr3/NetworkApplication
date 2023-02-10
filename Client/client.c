@@ -29,12 +29,12 @@ char *get_params(int argc, char *argv[]);
 char *get_line(char line[], FILE *file);
 void show_status(int status);
 
-
 int main(int argc, char *argv[])
 {
     int status = 0; // 0 == DISCONNECTED
     struct cfg user_cfg = get_cfg(argc, argv);
     show_status(status);
+    connection_phase(status, user_cfg);
 }
 
 void show_status(int status)
@@ -45,7 +45,6 @@ void show_status(int status)
     time(&current_time);
     time_info = localtime(&current_time);
 
-    
     printf("%02d:%02d:%02d MSG.  =>  Equip passa a l'estat: ", time_info->tm_hour, time_info->tm_min, time_info->tm_sec);
     switch (status)
     {
@@ -161,4 +160,14 @@ char *get_params(int argc, char *argv[])
         }
     }
     return "client.cfg";
+}
+
+void connection_phase(int status, struct cfg user_cfg)
+{
+    int sock;
+    if ((sock = socket(AF_INET, SOCK_DGRAM, 0)) < 0)
+    {
+        perror("socket: ");
+        exit(1);
+    }
 }
