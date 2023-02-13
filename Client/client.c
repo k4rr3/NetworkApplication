@@ -4,10 +4,18 @@
 #include <string.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <time.h>
 #define MAX_LEN 20
+//TIMERS AND THRESHOLDS
+#define T 1
+#define P 2
+#define Q 3
+#define U 2
+#define N 6
+#define O 2
 struct cfg
 {
     unsigned char id[7];
@@ -146,11 +154,14 @@ char *get_file_name(int argc, char *argv[])
 }
 
 void connection_phase(int status, struct cfg user_cfg)
-{
-    int sock;
-    if ((sock = socket(AF_INET, SOCK_DGRAM, 0)) < 0)
+{   struct timeval timeout = {2, 0};
+    int sock ;
+    if (sock = socket(AF_INET, SOCK_DGRAM, 0) < 0)
     {
         perror("socket: ");
         exit(1);
     }
+     setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(struct timeval));
+     
+
 }
