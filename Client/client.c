@@ -8,8 +8,11 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <time.h>
+#define BUFFER_SIZE 1024
+#define SERVER_IP "127.0.0.1"
+#define SERVER_PORT 2023
 #define MAX_LEN 20
-//TIMERS AND THRESHOLDS
+// TIMERS AND THRESHOLDS
 #define T 1
 #define P 2
 #define Q 3
@@ -36,17 +39,19 @@ struct cfg get_cfg(int argc, char *argv[]);
 char *get_file_name(int argc, char *argv[]);
 char *get_line(char line[], FILE *file);
 void show_status(int status);
+void connection_phase(int status, struct cfg user_cfg);
 
 int main(int argc, char *argv[])
 {
     int status = 0; // 0 == DISCONNECTED
-    int debug = check_debug_mode(argc, argv);
+    // int debug = check_debug_mode(argc, argv);
     struct cfg user_cfg = get_cfg(argc, argv);
     show_status(status);
     connection_phase(status, user_cfg);
 }
-int check_debug_mode(int argc, char *argv[]){
-     for (int i = 0; i < argc; i++)
+int check_debug_mode(int argc, char *argv[])
+{
+    for (int i = 0; i < argc; i++)
     {
         if ((strcmp("-d", argv[i]) == 0))
         {
@@ -80,7 +85,6 @@ void show_status(int status)
         break;
     case 4:
         printf("SEND_ALIVE \n");
-        break;
     }
 }
 
@@ -94,7 +98,7 @@ struct cfg get_cfg(int argc, char *argv[])
     if (!file)
     {
         printf("Error opening file: %s\n", file_name);
-        exit(EXIT_FAILURE);
+        exit(-1);
     }
 
     for (int i = 0; i < 4; i++)
@@ -103,7 +107,7 @@ struct cfg get_cfg(int argc, char *argv[])
         if (!parsed_line)
         {
             printf("Error reading line %d\n", i + 1);
-            exit(EXIT_FAILURE);
+            exit(-1);
         }
 
         switch (i)
@@ -154,14 +158,52 @@ char *get_file_name(int argc, char *argv[])
 }
 
 void connection_phase(int status, struct cfg user_cfg)
-{   struct timeval timeout = {2, 0};
-    int sock ;
-    if (sock = socket(AF_INET, SOCK_DGRAM, 0) < 0)
-    {
-        perror("socket: ");
-        exit(1);
-    }
-     setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(struct timeval));
-     
+{
+    int sockfd;
+    char buffer[BUFFER_SIZE];
+    struct sockaddr_in server_address;
 
+    // Create a UDP socket
+    sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sockfd < 0)
+    {
+        perror("socket() failed");
+        exit(-1);
+    }
+
+    // Set the server's address
+    memset(&server_address, 0, sizeof(server_address));
+    server_address.sin_family = AF_INET;
+    server_address.sin_port = htons(2023);
+    if (inet_pton(AF_INET, "127.0.0.1", &server_address.sin_addr) != 1)
+    {
+        perror("inet_pton() failed");
+        exit(-1);
+    }
+    //Create PDU
+    unsigned char pdu_msg[78]={"\n"};
+    pdu_msg[0]= 0x00;
+    //strcpy((char*)&pdu_msg[1], (const char*) user_cfg.)
+
+    // Send data to the server
+    const char *message = "Hello, server!";
+    if (sendto(sockfd, message, strlen(message), 0, (struct sockaddr *)&server_address, sizeof(server_address)) < 0)
+    {
+        perror("sendto() failed");
+        exit(-1);
+    }
+
+   /*  // Receive data from the server
+    socklen_t server_address_len = sizeof(server_address);
+    int received_bytes = recvfrom(sockfd, buffer, BUFFER_SIZE, 0, (struct sockaddr *)&server_address, &server_address_len);
+    if (received_bytes < 0)
+    {
+        perror("recvfrom() failed");
+        exit(-1);
+    }
+    buffer[received_bytes] = '\0';
+    printf("Received message from server: %s\n", buffer); */
+
+    // Close the socket
+    close(sockfd);
 }
