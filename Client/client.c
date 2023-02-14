@@ -8,10 +8,7 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <time.h>
-#define REGISTER_REQ 0x00
-#define REGISTER_ACK 0x02
-#define REGISTER_NACK 0x06
-#define ERROR 0x0F
+
 #define MAX_LEN 20
 // TIMERS AND THRESHOLDS
 #define T 1
@@ -20,6 +17,21 @@
 #define U 2
 #define N 6
 #define O 2
+enum pdu_status
+{
+    REGISTER_REQ = 0x00,
+    REGISTER_ACK = 0x02,
+    REGISTER_NACK = 0x06,
+    ERROR = 0x0F
+};
+enum status
+{
+    DISCONNECTED = 0xA0,
+    WAIT_REG_RESPONSE = 0XA2,
+    WAIT_DB_CHECK = 0xA4,
+    REGISTERED = 0XA6,
+    SEND_ALIVE = 0xA8
+};
 struct cfg
 {
     unsigned char id[7];
@@ -45,7 +57,7 @@ struct pdu_udp generate_pdu_request(struct cfg user_cfg);
 
 int main(int argc, char *argv[])
 {
-    int status = 0; // 0 == DISCONNECTED
+    int status = DISCONNECTED;
     // int debug = check_debug_mode(argc, argv);
     struct cfg user_cfg = get_cfg(argc, argv);
     show_status(status);
@@ -194,7 +206,7 @@ void connection_phase(int status, struct cfg user_cfg)
     struct pdu_udp pdu_reg_request = generate_pdu_request(user_cfg);
     unsigned char pdu_package[78] = {"\n"};
     pdu_package[0] = 0x00;
-    //strcpy((char *)&pdu_package[0], (const char *)pdu_reg_request.pdu_type);
+    // strcpy((char *)&pdu_package[0], (const char *)pdu_reg_request.pdu_type);
     strcpy((char *)&pdu_package[1], (const char *)pdu_reg_request.system_id);
     strcpy((char *)&pdu_package[1 + 7], (const char *)pdu_reg_request.mac_address);
     strcpy((char *)&pdu_package[1 + 7 + 13], (const char *)pdu_reg_request.random_number);
@@ -207,20 +219,21 @@ void connection_phase(int status, struct cfg user_cfg)
         perror("sendto() failed");
         exit(-1);
     }
+    status = WAIT_REG_RESPONSE;
 
-    /*  // Receive data from the server
-     socklen_t server_address_len = sizeof(server_address);
-     int received_bytes = recvfrom(sockfd, buffer, BUFFER_SIZE, 0, (struct sockaddr *)&server_address, &server_address_len);
-     if (received_bytes < 0)
-     {
-         perror("recvfrom() failed");
-         exit(-1);
-     }
-     buffer[received_bytes] = '\0';
-     printf("Received message from server: %s\n", buffer); */
+        /*  // Receive data from the server
+         socklen_t server_address_len = sizeof(server_address);
+         int received_bytes = recvfrom(sockfd, buffer, BUFFER_SIZE, 0, (struct sockaddr *)&server_address, &server_address_len);
+         if (received_bytes < 0)
+         {
+             perror("recvfrom() failed");
+             exit(-1);
+         }
+         buffer[received_bytes] = '\0';
+         printf("Received message from server: %s\n", buffer); */
 
-    // Close the socket
-    close(sockfd);
+        // Close the socket
+        close(sockfd);
 }
 struct pdu_udp generate_pdu_request(struct cfg user_cfg)
 {
@@ -229,7 +242,7 @@ struct pdu_udp generate_pdu_request(struct cfg user_cfg)
     pdu.pdu_type = 0x00;
     strcpy((char *)pdu.system_id, (const char *)user_cfg.id);
     strcpy((char *)pdu.mac_address, (const char *)user_cfg.mac);
-    strcpy((char *)pdu.random_number, (const char *)"0000000");
+    strcpy((char *)pdu.random_number, (const char *)"000000");
     strcpy((char *)pdu.data, (const char *)"");
     return pdu;
 }
