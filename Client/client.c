@@ -174,16 +174,16 @@ void connection_phase(int status, struct cfg user_cfg)
     // Set the server's address
     memset(&server_address, 0, sizeof(server_address));
     server_address.sin_family = AF_INET;
-    server_address.sin_port = htons(2023);
-    if (inet_pton(AF_INET, "127.0.0.1", &server_address.sin_addr) != 1)
+    server_address.sin_port = htons(atoi((const char *)user_cfg.nms_udp_port));
+    if (inet_pton(AF_INET, (const char *) user_cfg.nms_id, &server_address.sin_addr) != 1)
     {
         perror("inet_pton() failed");
         exit(-1);
     }
-    //Create PDU
-    unsigned char pdu_msg[78]={"\n"};
-    pdu_msg[0]= 0x00;
-    //strcpy((char*)&pdu_msg[1], (const char*) user_cfg.)
+    // Create PDU
+    unsigned char pdu_msg[78] = {"\n"};
+    pdu_msg[0] = 0x00;
+    // strcpy((char*)&pdu_msg[1], (const char*) user_cfg.)
 
     // Send data to the server
     const char *message = "Hello, server!";
@@ -193,16 +193,16 @@ void connection_phase(int status, struct cfg user_cfg)
         exit(-1);
     }
 
-   /*  // Receive data from the server
-    socklen_t server_address_len = sizeof(server_address);
-    int received_bytes = recvfrom(sockfd, buffer, BUFFER_SIZE, 0, (struct sockaddr *)&server_address, &server_address_len);
-    if (received_bytes < 0)
-    {
-        perror("recvfrom() failed");
-        exit(-1);
-    }
-    buffer[received_bytes] = '\0';
-    printf("Received message from server: %s\n", buffer); */
+    /*  // Receive data from the server
+     socklen_t server_address_len = sizeof(server_address);
+     int received_bytes = recvfrom(sockfd, buffer, BUFFER_SIZE, 0, (struct sockaddr *)&server_address, &server_address_len);
+     if (received_bytes < 0)
+     {
+         perror("recvfrom() failed");
+         exit(-1);
+     }
+     buffer[received_bytes] = '\0';
+     printf("Received message from server: %s\n", buffer); */
 
     // Close the socket
     close(sockfd);
