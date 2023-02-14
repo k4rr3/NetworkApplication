@@ -40,6 +40,7 @@ char *get_file_name(int argc, char *argv[]);
 char *get_line(char line[], FILE *file);
 void show_status(int status);
 void connection_phase(int status, struct cfg user_cfg);
+struct pdu_udp generate_pdu_request(struct cfg user_cfg);
 
 int main(int argc, char *argv[])
 {
@@ -68,7 +69,7 @@ void show_status(int status)
     time(&current_time);
     time_info = localtime(&current_time);
 
-    printf("%02d:%02d:%02d MSG.  =>  Equip passa a l'estat: ", time_info->tm_hour, time_info->tm_min, time_info->tm_sec);
+    printf("%02d:%02d:%02d_packagepdu_package.  =>  Equip passa a l'estat: ", time_info->tm_hour, time_info->tm_min, time_info->tm_sec);
     switch (status)
     {
     case 0:
@@ -175,19 +176,33 @@ void connection_phase(int status, struct cfg user_cfg)
     memset(&server_address, 0, sizeof(server_address));
     server_address.sin_family = AF_INET;
     server_address.sin_port = htons(atoi((const char *)user_cfg.nms_udp_port));
-    if (inet_pton(AF_INET, (const char *) user_cfg.nms_id, &server_address.sin_addr) != 1)
+    char *address;
+    if (strcmp((char *)user_cfg.nms_id, "localhost") == 0)
+    {
+        address = "127.0.0.1";
+    }
+    else
+    {
+        address = (char *)user_cfg.nms_id;
+    }
+    if (inet_pton(AF_INET, address, &server_address.sin_addr) != 1)
     {
         perror("inet_pton() failed");
         exit(-1);
     }
-    // Create PDU
-    unsigned char pdu_msg[78] = {"\n"};
-    pdu_msg[0] = 0x00;
-    // strcpy((char*)&pdu_msg[1], (const char*) user_cfg.)
+    // Create PDU REGISTER_REQ package
+    struct pdu_udp pdu_reg_request = generate_pdu_request(user_cfg);
+    unsigned char pdu_package[78] = {"\n"};
+    pdu_package[0] = 0x00;
+    //strcpy((char *)&pdu_package[0], (const char *)pdu_reg_request.pdu_type);
+    strcpy((char *)&pdu_package[1], (const char *)pdu_reg_request.system_id);
+    strcpy((char *)&pdu_package[1 + 7], (const char *)pdu_reg_request.mac_address);
+    strcpy((char *)&pdu_package[1 + 7 + 13], (const char *)pdu_reg_request.random_number);
+    strcpy((char *)&pdu_package[1 + 7 + 13 + 7], (const char *)pdu_reg_request.data);
+    // strcpy((char*)&pdu_package[1], (const char*) user_cfg.)
 
     // Send data to the server
-    const char *message = "Hello, server!";
-    if (sendto(sockfd, message, strlen(message), 0, (struct sockaddr *)&server_address, sizeof(server_address)) < 0)
+    if (sendto(sockfd, pdu_package, 78, 0, (struct sockaddr *)&server_address, sizeof(server_address)) < 0)
     {
         perror("sendto() failed");
         exit(-1);
@@ -206,4 +221,15 @@ void connection_phase(int status, struct cfg user_cfg)
 
     // Close the socket
     close(sockfd);
+}
+struct pdu_udp generate_pdu_request(struct cfg user_cfg)
+{
+    struct pdu_udp pdu;
+    memset(&pdu, 0, sizeof(pdu)); // To ensure pdu structure is all initialized with zero
+    pdu.pdu_type = 0x00;
+    strcpy((char *)pdu.system_id, (const char *)user_cfg.id);
+    strcpy((char *)pdu.mac_address, (const char *)user_cfg.mac);
+    strcpy((char *)pdu.random_number, (const char *)"0000000");
+    strcpy((char *)pdu.data, (const char *)"");
+    return pdu;
 }
