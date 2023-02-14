@@ -8,9 +8,10 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <time.h>
-#define BUFFER_SIZE 1024
-#define SERVER_IP "127.0.0.1"
-#define SERVER_PORT 2023
+#define REGISTER_REQ 0x00
+#define REGISTER_ACK 0x02
+#define REGISTER_NACK 0x06
+#define ERROR 0x0F
 #define MAX_LEN 20
 // TIMERS AND THRESHOLDS
 #define T 1
@@ -161,7 +162,6 @@ char *get_file_name(int argc, char *argv[])
 void connection_phase(int status, struct cfg user_cfg)
 {
     int sockfd;
-    char buffer[BUFFER_SIZE];
     struct sockaddr_in server_address;
 
     // Create a UDP socket
