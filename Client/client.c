@@ -171,7 +171,7 @@ char *get_file_name(int argc, char *argv[])
     }
     return "client.cfg";
 }
-//ESTABLISH CONNECTION WITH THE SERVER AND REGISTER PHASE
+// ESTABLISH CONNECTION WITH THE SERVER AND REGISTER PHASE
 void connection_phase(int status, struct cfg user_cfg)
 {
     int sockfd;
@@ -185,26 +185,42 @@ void connection_phase(int status, struct cfg user_cfg)
         exit(-1);
     }
 
-    // Set the server's address
-    memset(&server_address, 0, sizeof(server_address));
-    server_address.sin_family = AF_INET;
-    server_address.sin_port = htons(atoi((const char *)user_cfg.nms_udp_port));
-
     // If address from the config file is localhost, then 127.0.0.1 otherwise the ip specified is stablished
-    char *address;
+    char *address_str;
     if (strcmp((char *)user_cfg.nms_id, "localhost") == 0)
     {
-        address = "127.0.0.1";
+        address_str = "127.0.0.1";
     }
     else
     {
-        address = (char *)user_cfg.nms_id;
+        address_str = (char *)user_cfg.nms_id;
     }
-    if (inet_pton(AF_INET, address, &server_address.sin_addr) != 1)
+
+    // Convert IP address to binary format
+    struct in_addr address;
+    if (inet_pton(AF_INET, address_str, &address) != 1)
     {
         perror("inet_pton() failed");
         exit(-1);
     }
+
+    // Set the server's address
+    memset(&server_address, 0, sizeof(server_address));
+    server_address.sin_family = AF_INET;
+    server_address.sin_addr = address;
+    server_address.sin_port = htons(atoi((const char *)user_cfg.nms_udp_port));
+
+    if (bind(sockfd, (struct sockaddr *)&server_address, sizeof(struct sockaddr_in)) != 0)
+    {
+        perror("bind() failed");
+        exit(-1);
+    } 
+
+    /* if (inet_pton(AF_INET, address, &server_address.sin_addr) != 1)
+    {
+        perror("inet_pton() failed");
+        exit(-1);
+    } */
     // Create PDU REGISTER_REQ package
     struct pdu_udp pdu_reg_request = generate_pdu_request(user_cfg);
     unsigned char pdu_package[78] = {"\n"};
@@ -222,10 +238,9 @@ void connection_phase(int status, struct cfg user_cfg)
         exit(-1);
     }
     status = WAIT_REG_RESPONSE;
-
+    struct timeval timeout = {T, 0}; // tv_sec -> T(s) and tv_usec -> 0(ms)
     // Receive data from the server
-    socklen_t server_address_len = sizeof(server_address);
-    int received_bytes = recvfrom(sockfd, pdu_package, 78, 0, (struct sockaddr *)&server_address, &server_address_len);
+    int received_bytes = recvfrom(sockfd, pdu_package, 78, 0, (struct sockaddr *)&server_address, &(socklen_t){sizeof(server_address)});
     if (received_bytes < 0)
     {
         perror("recvfrom() failed");
@@ -234,10 +249,10 @@ void connection_phase(int status, struct cfg user_cfg)
         pdu_package[received_bytes - 1] = 's';
     }
     pdu_package[received_bytes] = '\0';
-    //printf("Received message from server: .%s. with %d received_bytes\n", pdu_package, received_bytes);
+    // printf("Received message from server: .%s. with %d received_bytes\n", pdu_package, received_bytes);
     switch (pdu_package[0])
     {
-    case REGISTER_ACK: //0x02
+    case REGISTER_ACK: // 0x02
         status = REGISTERED;
         char random_num[8];
         random_num[8] = '\n';
@@ -247,21 +262,21 @@ void connection_phase(int status, struct cfg user_cfg)
         }
         printf("Random numero leido es: %s\n", random_num);
         char port[5];
-        port[5]='\n';
+        port[5] = '\n';
         for (int i = 0; i < 4; i++)
         {
             port[i] = pdu_package[28 + i];
         }
         printf("Port number: %s\n", port);
         printf("REGISTERED\n");
-        //ENTERING ALIVE MODE
+        // ENTERING ALIVE MODE
         break;
-    case REGISTER_NACK: //0x04
+    case REGISTER_NACK: // 0x04
         break;
-    case REGISTER_REJ: //0x06
+    case REGISTER_REJ: // 0x06
         status = DISCONNECTED;
-        break; 
-    case ERROR: //0x0F
+        break;
+    case ERROR: // 0x0F
         break;
     }
     // Close the socket
