@@ -21,7 +21,8 @@ enum pdu_status
 {
     REGISTER_REQ = 0x00,
     REGISTER_ACK = 0x02,
-    REGISTER_NACK = 0x06,
+    REGISTER_NACK = 0x04,
+    REGISTER_REJ = 0x06,
     ERROR = 0x0F
 };
 enum status
@@ -85,19 +86,19 @@ void show_status(int status)
     printf("%02d:%02d:%02d_packagepdu_package.  =>  Equip passa a l'estat: ", time_info->tm_hour, time_info->tm_min, time_info->tm_sec);
     switch (status)
     {
-    case 0:
+    case 0xA0:
         printf("DISCONNECTED \n");
         break;
-    case 1:
+    case 0xA2:
         printf("WAIT_REG_RESPONSE \n");
         break;
-    case 2:
+    case 0xA4:
         printf("WAIT_DB_CHECK \n");
         break;
-    case 3:
+    case 0xA6:
         printf("REGISTERED \n");
         break;
-    case 4:
+    case 0xA8:
         printf("SEND_ALIVE \n");
     }
 }
@@ -127,16 +128,16 @@ struct cfg get_cfg(int argc, char *argv[])
         switch (i)
         {
         case 0:
-            strncpy((char *)user_cfg.id, (char *)parsed_line, MAX_LEN);
+            strncpy((char *)user_cfg.id, (char *)parsed_line, sizeof(user_cfg.id));
             break;
         case 1:
-            strncpy((char *)user_cfg.mac, (char *)parsed_line, MAX_LEN);
+            strncpy((char *)user_cfg.mac, (char *)parsed_line, sizeof(user_cfg.mac));
             break;
         case 2:
-            strncpy((char *)user_cfg.nms_id, (char *)parsed_line, MAX_LEN);
+            strncpy((char *)user_cfg.nms_id, (char *)parsed_line, sizeof(user_cfg.nms_id));
             break;
         case 3:
-            strncpy((char *)user_cfg.nms_udp_port, (char *)parsed_line, MAX_LEN);
+            strncpy((char *)user_cfg.nms_udp_port, (char *)parsed_line, sizeof(user_cfg.nms_udp_port));
             break;
         }
         // printf("%s\n", parsed_line);
@@ -170,7 +171,7 @@ char *get_file_name(int argc, char *argv[])
     }
     return "client.cfg";
 }
-
+//ESTABLISH CONNECTION WITH THE SERVER AND REGISTER PHASE
 void connection_phase(int status, struct cfg user_cfg)
 {
     int sockfd;
@@ -188,6 +189,8 @@ void connection_phase(int status, struct cfg user_cfg)
     memset(&server_address, 0, sizeof(server_address));
     server_address.sin_family = AF_INET;
     server_address.sin_port = htons(atoi((const char *)user_cfg.nms_udp_port));
+
+    // If address from the config file is localhost, then 127.0.0.1 otherwise the ip specified is stablished
     char *address;
     if (strcmp((char *)user_cfg.nms_id, "localhost") == 0)
     {
@@ -211,9 +214,8 @@ void connection_phase(int status, struct cfg user_cfg)
     strcpy((char *)&pdu_package[1 + 7], (const char *)pdu_reg_request.mac_address);
     strcpy((char *)&pdu_package[1 + 7 + 13], (const char *)pdu_reg_request.random_number);
     strcpy((char *)&pdu_package[1 + 7 + 13 + 7], (const char *)pdu_reg_request.data);
-    // strcpy((char*)&pdu_package[1], (const char*) user_cfg.)
 
-    // Send data to the server
+    // Send register package to the server
     if (sendto(sockfd, pdu_package, 78, 0, (struct sockaddr *)&server_address, sizeof(server_address)) < 0)
     {
         perror("sendto() failed");
@@ -221,19 +223,49 @@ void connection_phase(int status, struct cfg user_cfg)
     }
     status = WAIT_REG_RESPONSE;
 
-        /*  // Receive data from the server
-         socklen_t server_address_len = sizeof(server_address);
-         int received_bytes = recvfrom(sockfd, buffer, BUFFER_SIZE, 0, (struct sockaddr *)&server_address, &server_address_len);
-         if (received_bytes < 0)
-         {
-             perror("recvfrom() failed");
-             exit(-1);
-         }
-         buffer[received_bytes] = '\0';
-         printf("Received message from server: %s\n", buffer); */
+    // Receive data from the server
+    socklen_t server_address_len = sizeof(server_address);
+    int received_bytes = recvfrom(sockfd, pdu_package, 78, 0, (struct sockaddr *)&server_address, &server_address_len);
+    if (received_bytes < 0)
+    {
+        perror("recvfrom() failed");
+        exit(-1);
 
-        // Close the socket
-        close(sockfd);
+        pdu_package[received_bytes - 1] = 's';
+    }
+    pdu_package[received_bytes] = '\0';
+    //printf("Received message from server: .%s. with %d received_bytes\n", pdu_package, received_bytes);
+    switch (pdu_package[0])
+    {
+    case REGISTER_ACK: //0x02
+        status = REGISTERED;
+        char random_num[8];
+        random_num[8] = '\n';
+        for (int i = 0; i < 7; i++)
+        {
+            random_num[i] = pdu_package[21 + i];
+        }
+        printf("Random numero leido es: %s\n", random_num);
+        char port[5];
+        port[5]='\n';
+        for (int i = 0; i < 4; i++)
+        {
+            port[i] = pdu_package[28 + i];
+        }
+        printf("Port number: %s\n", port);
+        printf("REGISTERED\n");
+        //ENTERING ALIVE MODE
+        break;
+    case REGISTER_NACK: //0x04
+        break;
+    case REGISTER_REJ: //0x06
+        status = DISCONNECTED;
+        break; 
+    case ERROR: //0x0F
+        break;
+    }
+    // Close the socket
+    close(sockfd);
 }
 struct pdu_udp generate_pdu_request(struct cfg user_cfg)
 {
