@@ -83,7 +83,7 @@ void show_status(int status)
     time(&current_time);
     time_info = localtime(&current_time);
 
-    printf("%02d:%02d:%02d_packagepdu_package.  =>  Equip passa a l'estat: ", time_info->tm_hour, time_info->tm_min, time_info->tm_sec);
+    printf("%02d:%02d:%02d MSG  =>  Equip passa a l'estat: ", time_info->tm_hour, time_info->tm_min, time_info->tm_sec);
     switch (status)
     {
     case 0xA0:
@@ -175,7 +175,7 @@ char *get_file_name(int argc, char *argv[])
 void connection_phase(int status, struct cfg user_cfg)
 {
     int sockfd;
-    struct sockaddr_in server_address;
+    struct sockaddr_in client_address, server_address;
 
     // Create a UDP socket
     sockfd = socket(AF_INET, SOCK_DGRAM, 0);
@@ -185,7 +185,23 @@ void connection_phase(int status, struct cfg user_cfg)
         exit(-1);
     }
 
-    // If address from the config file is localhost, then 127.0.0.1 otherwise the ip specified is stablished
+    // Set the client address to bind it to a specific address and port
+    memset(&client_address, 0, sizeof(client_address));
+    client_address.sin_family = AF_INET;
+    // client_address.sin_addr = address;
+    // client_address.sin_port = htons(atoi((const char *)user_cfg.nms_udp_port));
+    client_address.sin_addr.s_addr = htonl(0);
+    client_address.sin_port = htonl(0);
+
+    if (bind(sockfd, (struct sockaddr *)&client_address, sizeof(client_address)) != 0)
+    {
+        perror("bind() failed");
+        exit(-1);
+    }
+
+    // Set the server port and address to be able to send the packages
+
+    // If address from the config file is localhost, then 127.0.0.1 otherwise the ip specified is established
     char *address_str;
     if (strcmp((char *)user_cfg.nms_id, "localhost") == 0)
     {
@@ -196,7 +212,7 @@ void connection_phase(int status, struct cfg user_cfg)
         address_str = (char *)user_cfg.nms_id;
     }
 
-    // Convert IP address to binary format
+    // Convert IP address to binary format: https://man7.org/linux/man-pages/man3/inet_pton.3.html
     struct in_addr address;
     if (inet_pton(AF_INET, address_str, &address) != 1)
     {
@@ -204,23 +220,18 @@ void connection_phase(int status, struct cfg user_cfg)
         exit(-1);
     }
 
-    // Set the server's address
+    // Convert IP address to binary format
+   /*  struct in_addr address;
+    if (inet_pton(AF_INET, (const char *)user_cfg.nms_id, &address) == -1)
+    {
+        perror("Failed to convert IP address");
+        exit(EXIT_FAILURE);
+    } */
+
     memset(&server_address, 0, sizeof(server_address));
     server_address.sin_family = AF_INET;
     server_address.sin_addr = address;
     server_address.sin_port = htons(atoi((const char *)user_cfg.nms_udp_port));
-
-    if (bind(sockfd, (struct sockaddr *)&server_address, sizeof(struct sockaddr_in)) != 0)
-    {
-        perror("bind() failed");
-        exit(-1);
-    } 
-
-    /* if (inet_pton(AF_INET, address, &server_address.sin_addr) != 1)
-    {
-        perror("inet_pton() failed");
-        exit(-1);
-    } */
     // Create PDU REGISTER_REQ package
     struct pdu_udp pdu_reg_request = generate_pdu_request(user_cfg);
     unsigned char pdu_package[78] = {"\n"};
