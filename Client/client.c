@@ -52,7 +52,7 @@ struct pdu_udp
 struct cfg get_cfg(int argc, char *argv[]);
 char *get_file_name(int argc, char *argv[]);
 char *get_line(char line[], FILE *file);
-void show_status(int status);
+void show_status(char text[], int status);
 void connection_phase(int status, struct cfg user_cfg);
 struct pdu_udp generate_pdu_request(struct cfg user_cfg);
 
@@ -61,7 +61,7 @@ int main(int argc, char *argv[])
     int status = DISCONNECTED;
     // int debug = check_debug_mode(argc, argv);
     struct cfg user_cfg = get_cfg(argc, argv);
-    show_status(status);
+    show_status("MSG.  =>  Equip passa a l'estat:", status);
     connection_phase(status, user_cfg);
 }
 int check_debug_mode(int argc, char *argv[])
@@ -75,7 +75,7 @@ int check_debug_mode(int argc, char *argv[])
     }
     return 0;
 }
-void show_status(int status)
+void show_status(char text[], int status)
 {
     time_t current_time;
     struct tm *time_info;
@@ -83,7 +83,7 @@ void show_status(int status)
     time(&current_time);
     time_info = localtime(&current_time);
 
-    printf("%02d:%02d:%02d MSG  =>  Equip passa a l'estat: ", time_info->tm_hour, time_info->tm_min, time_info->tm_sec);
+    printf("%02d:%02d:%02d %s", time_info->tm_hour, time_info->tm_min, time_info->tm_sec, text);
     switch (status)
     {
     case 0xA0:
@@ -100,6 +100,8 @@ void show_status(int status)
         break;
     case 0xA8:
         printf("SEND_ALIVE \n");
+    default:
+        break;
     }
 }
 
@@ -221,12 +223,12 @@ void connection_phase(int status, struct cfg user_cfg)
     }
 
     // Convert IP address to binary format
-   /*  struct in_addr address;
-    if (inet_pton(AF_INET, (const char *)user_cfg.nms_id, &address) == -1)
-    {
-        perror("Failed to convert IP address");
-        exit(EXIT_FAILURE);
-    } */
+    /*  struct in_addr address;
+     if (inet_pton(AF_INET, (const char *)user_cfg.nms_id, &address) == -1)
+     {
+         perror("Failed to convert IP address");
+         exit(EXIT_FAILURE);
+     } */
 
     memset(&server_address, 0, sizeof(server_address));
     server_address.sin_family = AF_INET;
@@ -242,56 +244,124 @@ void connection_phase(int status, struct cfg user_cfg)
     strcpy((char *)&pdu_package[1 + 7 + 13], (const char *)pdu_reg_request.random_number);
     strcpy((char *)&pdu_package[1 + 7 + 13 + 7], (const char *)pdu_reg_request.data);
 
-    // Send register package to the server
-    if (sendto(sockfd, pdu_package, 78, 0, (struct sockaddr *)&server_address, sizeof(server_address)) < 0)
-    {
-        perror("sendto() failed");
-        exit(-1);
-    }
-    status = WAIT_REG_RESPONSE;
-    struct timeval timeout = {T, 0}; // tv_sec -> T(s) and tv_usec -> 0(ms)
-    // Receive data from the server
-    int received_bytes = recvfrom(sockfd, pdu_package, 78, 0, (struct sockaddr *)&server_address, &(socklen_t){sizeof(server_address)});
-    if (received_bytes < 0)
-    {
-        perror("recvfrom() failed");
-        exit(-1);
+    int interval = T;
+    int packets_sent = 0;
+    int process_made = 1;
+    show_status("DEBUG =>  Registre equip, intent:  ", -1);
+    printf("%d\n", process_made);
 
-        pdu_package[received_bytes - 1] = 's';
-    }
-    pdu_package[received_bytes] = '\0';
-    // printf("Received message from server: .%s. with %d received_bytes\n", pdu_package, received_bytes);
-    switch (pdu_package[0])
+    // Set the status to WAIT_REG_RESPONSE
+    status = WAIT_REG_RESPONSE;
+    while (status != REGISTERED && status != DISCONNECTED && process_made <= O)
     {
-    case REGISTER_ACK: // 0x02
-        status = REGISTERED;
-        char random_num[8];
-        random_num[8] = '\n';
-        for (int i = 0; i < 7; i++)
+        // Send register package to the server
+        if (sendto(sockfd, pdu_package, 78, 0, (struct sockaddr *)&server_address, sizeof(server_address)) < 0)
         {
-            random_num[i] = pdu_package[21 + i];
+            perror("sendto() failed");
+            exit(-1);
         }
-        printf("Random numero leido es: %s\n", random_num);
-        char port[5];
-        port[5] = '\n';
-        for (int i = 0; i < 4; i++)
+        packets_sent++;
+
+        // Wait for a response from the server
+        fd_set read_fds;
+        FD_ZERO(&read_fds);
+        FD_SET(sockfd, &read_fds);
+        struct timeval timeout = {interval, 0};
+        int select_status = select(sockfd + 1, &read_fds, NULL, NULL, &timeout);
+        if (select_status == -1)
         {
-            port[i] = pdu_package[28 + i];
+            perror("select() failed");
+            exit(-1);
         }
-        printf("Port number: %s\n", port);
-        printf("REGISTERED\n");
-        // ENTERING ALIVE MODE
-        break;
-    case REGISTER_NACK: // 0x04
-        break;
-    case REGISTER_REJ: // 0x06
-        status = DISCONNECTED;
-        break;
-    case ERROR: // 0x0F
-        break;
+        else if (select_status == 0) // Timeout occurred
+        {
+            if (packets_sent <= P)
+            {
+                // Increase the interval until q * T seconds
+                interval = T * packets_sent;
+            }
+            else
+            {
+                interval = Q * T;
+            }
+            if (packets_sent >= N)
+            {
+                process_made += 1;
+                show_status("INFO  =>  Fallida registre amb servidor: localhost\n", -1);
+                if (process_made <= O)
+                {
+                    sleep(U); // wait U seconds and restart a new registration process
+                    show_status("DEBUG =>  Registre equip, intent: ", -1);
+                    printf("%d\n", process_made);
+                    // Restart the registration process
+                    packets_sent = 0;
+                    interval = T;
+                    status = WAIT_REG_RESPONSE;
+                }
+            }
+            else
+            {
+                // Resend the registration package
+                show_status("MSG.  =>  Client passa a l'estat:", status);
+                // printf("Resending registration package...\n");
+            }
+        }
+        else // Response received
+        {
+            int received_bytes = recvfrom(sockfd, pdu_package, 78, 0, (struct sockaddr *)&server_address, &(socklen_t){sizeof(server_address)});
+            if (received_bytes < 0)
+            {
+                perror("recvfrom() failed");
+                exit(-1);
+            }
+            pdu_package[received_bytes] = '\0';
+            switch (pdu_package[0])
+            {
+            case REGISTER_ACK: // 0x02
+                status = REGISTERED;
+                char random_num[8];
+                random_num[8] = '\n';
+                for (int i = 0; i < 7; i++)
+                {
+                    random_num[i] = pdu_package[21 + i];
+                }
+                printf("Random numero leido es: %s\n", random_num);
+                char port[5];
+                port[5] = '\n';
+                for (int i = 0; i < 4; i++)
+                {
+                    port[i] = pdu_package[28 + i];
+                }
+                printf("Port number: %s\n", port);
+                printf("REGISTERED\n");
+                // ENTERING ALIVE MODE
+                break;
+            case REGISTER_NACK: // 0x04
+                process_made += 1;
+                show_status("INFO  =>  Fallida registre amb servidor: localhost\n", -1);
+                if (process_made <= O)
+                {
+                    sleep(U); // wait U seconds and restart a new registration process
+                    show_status("DEBUG =>  Registre equip, intent: ", -1);
+                    printf("%d\n", process_made);
+                    // Restart the registration process
+                    packets_sent = 0;
+                    interval = T;
+                    status = WAIT_REG_RESPONSE;
+                }
+                break;
+            case REGISTER_REJ: // 0x06
+                status = DISCONNECTED;
+                char data[50];
+                memcpy(data, &pdu_package[28], 50);
+                printf("REGISTER REJECTED: %s", data);
+
+                break;
+            case ERROR: // 0x0F
+                break;
+            }
+        }
     }
-    // Close the socket
-    close(sockfd);
 }
 struct pdu_udp generate_pdu_request(struct cfg user_cfg)
 {
