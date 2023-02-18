@@ -67,8 +67,10 @@ void show_status(char text[], int status);
 void connection_phase(int status, struct cfg user_cfg);
 struct pdu_udp generate_pdu(struct cfg user_cfg, int pdu_type, char random_number[], char data[]);
 void copyElements(char *src, char *dest, int start, int numElements);
-void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in server_address, char random_num[], char tcp_port[]);
-
+void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in server_address, struct pdu_udp received_reg_pdu);
+struct pdu_udp unpack_pdu(char pdu_package[]);
+char *extractElements(char *src, int start, int numElements);
+int check_subscription(struct pdu_udp pdu1, struct pdu_udp pdu2);
 int main(int argc, char *argv[])
 {
     int status = DISCONNECTED;
@@ -312,13 +314,14 @@ void connection_phase(int status, struct cfg user_cfg)
             {
             case REGISTER_ACK: // 0x02
                 status = REGISTERED;
-                char random_num[7];
+                struct pdu_udp received_reg_pdu = unpack_pdu((char *)pdu_package);
+                /* char random_num[7];
                 char port[5];
                 copyElements((char *)pdu_package, random_num, 21, 6);
                 copyElements((char *)pdu_package, port, 28, 4);
-                printf("Random numero leido es: %s\n", random_num);
+                printf("Random numero leido es: %s\n", random_num); */
                 // printf("Port number: %s\n", port);
-                alive_phase(sockfd, status, user_cfg, server_address, random_num, port);
+                alive_phase(sockfd, status, user_cfg, server_address, received_reg_pdu);
                 break;
             case REGISTER_NACK: // 0x04
                 process_made += 1;
@@ -366,10 +369,10 @@ struct pdu_udp generate_pdu(struct cfg user_cfg, int pdu_type, char random_numbe
     strcpy((char *)pdu.data, (const char *)data);
     return pdu;
 }
-void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in server_address, char random_num[], char tcp_port[])
+void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in server_address, struct pdu_udp received_reg_pdu)
 {
     // Create PDU ALIVE_INF package
-    struct pdu_udp pdu_alive_inf = generate_pdu(user_cfg, ALIVE_INF, random_num, "");
+    struct pdu_udp pdu_alive_inf = generate_pdu(user_cfg, ALIVE_INF, received_reg_pdu.random_number, "");
     unsigned char pdu_package[78] = {"\n"};
     pdu_package[0] = ALIVE_INF;
     strcpy((char *)&pdu_package[1], (const char *)pdu_alive_inf.system_id);
@@ -397,6 +400,9 @@ void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in
         }
         else if (select_status == 0) // Timeout occurred
         {
+        }
+        else // Response received
+        {
             int received_bytes = recvfrom(sockfd, pdu_package, 78, 0, (struct sockaddr *)&server_address, &(socklen_t){sizeof(server_address)});
             if (received_bytes < 0)
             {
@@ -407,15 +413,57 @@ void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in
             switch (pdu_package[0])
             {
             case ALIVE_ACK:
-                /* code */
+                if (status == REGISTERED)
+                {
+                    status = SEND_ALIVE;
+                }
+                struct pdu_udp received_alive_pdu = unpack_pdu((char *)pdu_package);
+                if (check_subscription(received_alive_pdu, received_reg_pdu) == 0)
+                {
+                    show_status("Acceptada subscripció amb servidor: ", -1);
+                    printf("%s\n (id: %s, mac: %s, alea:%s, port tcp: %s)\n", user_cfg.nms_id, received_alive_pdu.system_id, received_alive_pdu.mac_address, received_alive_pdu.random_number, user_cfg.nms_udp_port);
+                }
+                else
+                {
+                    show_status("Denegada subscripció amb servidor: ", -1);
+                    printf("%s\n (id: %s, mac: %s, alea:%s, port tcp: %s)\n", user_cfg.nms_id, received_alive_pdu.system_id, received_alive_pdu.mac_address, received_alive_pdu.random_number, user_cfg.nms_udp_port);
+                }
+                }
                 break;
-            
+
             default:
                 break;
             }
         }
-        else // Response received
-        {
-        }
     }
+}
+struct pdu_udp unpack_pdu(char pdu_package[])
+{
+    struct pdu_udp pdu;
+    memset(&pdu, 0, sizeof(pdu)); // To ensure pdu structure is all initialized with zero
+    pdu.pdu_type = pdu_package[0];
+    strcpy((char *)pdu.system_id, extractElements(pdu_package, 1, 6));
+    strcpy((char *)pdu.mac_address, extractElements(pdu_package, 1 + 7, 12));
+    strcpy((char *)pdu.random_number, extractElements(pdu_package, 1 + 7 + 13, 6));
+    strcpy((char *)pdu.data, extractElements(pdu_package, 1 + 7 + 13 + 7, 49));
+    return pdu;
+}
+char *extractElements(char *src, int start, int numElements)
+{
+    char *dest = malloc(numElements + 1); // +1 for the null terminator
+    int i;
+    for (i = 0; i < numElements; i++)
+    {
+        dest[i] = src[start + i];
+    }
+    dest[numElements] = '\0'; // add the null terminator
+    return dest;
+}
+int check_subscription(struct pdu_udp pdu1, struct pdu_udp pdu2)
+{
+    int equal = 0;
+    equal = strcmp(pdu1.system_id, pdu2.system_id);
+    equal = strcmp(pdu1.mac_address, pdu2.mac_address);
+    equal = strcmp(pdu1.random_number, pdu2.random_number);
+    return equal;
 }
