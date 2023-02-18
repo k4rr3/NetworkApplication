@@ -379,15 +379,17 @@ void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in
     strcpy((char *)&pdu_package[1 + 7], (const char *)pdu_alive_inf.mac_address);
     strcpy((char *)&pdu_package[1 + 7 + 13], (const char *)pdu_alive_inf.random_number);
     strcpy((char *)&pdu_package[1 + 7 + 13 + 7], (const char *)pdu_alive_inf.data);
+    int alive_confirms = 0;
 
-    if (sendto(sockfd, pdu_package, 78, 0, (struct sockaddr *)&server_address, sizeof(server_address)) < 0)
+    while (status != DISCONNECTED && alive_confirms < S)
     {
-        perror("sendto() failed");
-        exit(-1);
-    }
-
-    while (status != DISCONNECTED)
-    {
+        if (sendto(sockfd, pdu_package, 78, 0, (struct sockaddr *)&server_address, sizeof(server_address)) < 0)
+        {
+            perror("sendto() failed");
+            exit(-1);
+        }
+        show_status(" DEBUG =>  Enviat: ",-1);
+        printf("bytes=%d, comanda=%d, id=%s, mac=%s, alea=%s  dades=%s\n", 78, status, pdu_alive_inf.system_id, pdu_alive_inf.mac_address, pdu_alive_inf.random_number, pdu_alive_inf.data);
         fd_set read_fds;
         FD_ZERO(&read_fds);        // clears the file descriptor set read_fds and initializes it to the empty set.
         FD_SET(sockfd, &read_fds); // Adds the sockfd file descriptor to the read_fds set
@@ -410,32 +412,46 @@ void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in
                 exit(-1);
             }
             pdu_package[received_bytes] = '\0';
+            show_status(" DEBUG =>  Rebut: ",-1);
+            printf("bytes=%d, comanda=%d, id=%s, mac=%s, alea=%s  dades=%s\n", 78, status, pdu_alive_inf.system_id, pdu_alive_inf.mac_address, pdu_alive_inf.random_number, pdu_alive_inf.data);
             switch (pdu_package[0])
             {
             case ALIVE_ACK:
                 if (status == REGISTERED)
                 {
                     status = SEND_ALIVE;
+                    show_status("MSG.  =>  Equip passa a l'estat:", status);
+                    show_status("DEBUG =>  Creat procés per gestionar alives\n", -1);
+                    show_status("DEBUG =>  Establert temporitzador per enviament alives\n", -1);
                 }
                 struct pdu_udp received_alive_pdu = unpack_pdu((char *)pdu_package);
                 if (check_subscription(received_alive_pdu, received_reg_pdu) == 0)
                 {
-                    show_status("Acceptada subscripció amb servidor: ", -1);
-                    printf("%s\n (id: %s, mac: %s, alea:%s, port tcp: %s)\n", user_cfg.nms_id, received_alive_pdu.system_id, received_alive_pdu.mac_address, received_alive_pdu.random_number, user_cfg.nms_udp_port);
+                    show_status("INFO  =>  Acceptada subscripció amb servidor: ", -1);
+                    printf("%s\n \t(id: %s, mac: %s, alea:%s, port tcp: %s)\n", user_cfg.nms_id, received_alive_pdu.system_id, received_alive_pdu.mac_address, received_alive_pdu.random_number, user_cfg.nms_udp_port);
                 }
                 else
                 {
-                    show_status("Denegada subscripció amb servidor: ", -1);
-                    printf("%s\n (id: %s, mac: %s, alea:%s, port tcp: %s)\n", user_cfg.nms_id, received_alive_pdu.system_id, received_alive_pdu.mac_address, received_alive_pdu.random_number, user_cfg.nms_udp_port);
-                }
+                    show_status("INFO  =>  Denegada subscripció amb servidor: ", -1);
+                    printf("%s\n \t(id: %s, mac: %s, alea:%s, port tcp: %s)\n", user_cfg.nms_id, received_alive_pdu.system_id, received_alive_pdu.mac_address, received_alive_pdu.random_number, user_cfg.nms_udp_port);
                 }
                 break;
+            case ALIVE_REJ:
+                if (status == SEND_ALIVE)
+                {
+                    printf("ALIVE_REJ\n");
+                    status = DISCONNECTED;
+                    connection_phase(status, user_cfg);
+                }
 
-            default:
+            case ALIVE_NACK:
+                show_status("INFO => ALIVE_NACK rebut, es considera com no haver rebut resposta del servidor\n", -1);
                 break;
             }
         }
     }
+    status = DISCONNECTED;
+    connection_phase(status, user_cfg);
 }
 struct pdu_udp unpack_pdu(char pdu_package[])
 {
