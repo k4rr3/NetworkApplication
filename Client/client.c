@@ -17,14 +17,7 @@
 #define U 2
 #define N 6
 #define O 2
-enum pdu_status
-{
-    REGISTER_REQ = 0x00,
-    REGISTER_ACK = 0x02,
-    REGISTER_NACK = 0x04,
-    REGISTER_REJ = 0x06,
-    ERROR = 0x0F
-};
+// STATUS AND PDU ENUMS
 enum status
 {
     DISCONNECTED = 0xA0,
@@ -32,6 +25,21 @@ enum status
     WAIT_DB_CHECK = 0xA4,
     REGISTERED = 0XA6,
     SEND_ALIVE = 0xA8
+};
+enum pdu_register
+{
+    REGISTER_REQ = 0x00,
+    REGISTER_ACK = 0x02,
+    REGISTER_NACK = 0x04,
+    REGISTER_REJ = 0x06,
+    ERROR = 0x0F
+};
+enum pdu_alive
+{
+    ALIVE_INF = 0x10,
+    ALIVE_ACK = 0x12,
+    ALIVE_NACK = 0x14,
+    ALIVE_REJ = 0x16
 };
 struct cfg
 {
@@ -54,7 +62,9 @@ char *get_file_name(int argc, char *argv[]);
 char *get_line(char line[], FILE *file);
 void show_status(char text[], int status);
 void connection_phase(int status, struct cfg user_cfg);
-struct pdu_udp generate_pdu_request(struct cfg user_cfg);
+struct pdu_udp generate_pdu(struct cfg user_cfg, int pdu_type, char random_number[], char data[]);
+void copyElements(char *src, char *dest, int start, int numElements);
+void alive_phase(int argc, char *argv[], int sockfd, int status, struct cfg user_cfg, struct sockaddr_in client_address );
 
 int main(int argc, char *argv[])
 {
@@ -179,7 +189,7 @@ void connection_phase(int status, struct cfg user_cfg)
     int sockfd;
     struct sockaddr_in client_address, server_address;
 
-    // Create a UDP socket
+    // Create a UDP socket, open a communication channel
     sockfd = socket(AF_INET, SOCK_DGRAM, 0);
     if (sockfd < 0)
     {
@@ -187,13 +197,11 @@ void connection_phase(int status, struct cfg user_cfg)
         exit(-1);
     }
 
-    // Set the client address to bind it to a specific address and port
+    // Bind client's channel to a port and address
     memset(&client_address, 0, sizeof(client_address));
     client_address.sin_family = AF_INET;
-    // client_address.sin_addr = address;
-    // client_address.sin_port = htons(atoi((const char *)user_cfg.nms_udp_port));
     client_address.sin_addr.s_addr = htonl(0);
-    client_address.sin_port = htonl(0);
+    client_address.sin_port = htons(0);
 
     if (bind(sockfd, (struct sockaddr *)&client_address, sizeof(client_address)) != 0)
     {
@@ -201,48 +209,31 @@ void connection_phase(int status, struct cfg user_cfg)
         exit(-1);
     }
 
-    // Set the server port and address to be able to send the packages
-
-    // If address from the config file is localhost, then 127.0.0.1 otherwise the ip specified is established
-    char *address_str;
+    // If address from the config file is localhost, then it is resolved as 127.0.0.1 otherwise the ip specified is established
+    char *address;
     if (strcmp((char *)user_cfg.nms_id, "localhost") == 0)
     {
-        address_str = "127.0.0.1";
+        address = "127.0.0.1";
     }
     else
     {
-        address_str = (char *)user_cfg.nms_id;
+        address = (char *)user_cfg.nms_id;
     }
 
-    // Convert IP address to binary format: https://man7.org/linux/man-pages/man3/inet_pton.3.html
-    struct in_addr address;
-    if (inet_pton(AF_INET, address_str, &address) != 1)
-    {
-        perror("inet_pton() failed");
-        exit(-1);
-    }
-
-    // Convert IP address to binary format
-    /*  struct in_addr address;
-     if (inet_pton(AF_INET, (const char *)user_cfg.nms_id, &address) == -1)
-     {
-         perror("Failed to convert IP address");
-         exit(EXIT_FAILURE);
-     } */
-
+    // Set the server port and address to be able to send the packages
     memset(&server_address, 0, sizeof(server_address));
     server_address.sin_family = AF_INET;
-    server_address.sin_addr = address;
+    server_address.sin_addr.s_addr = inet_addr(address);
     server_address.sin_port = htons(atoi((const char *)user_cfg.nms_udp_port));
+
     // Create PDU REGISTER_REQ package
-    struct pdu_udp pdu_reg_request = generate_pdu_request(user_cfg);
+    struct pdu_udp pdu_reg_req = generate_pdu(user_cfg, REGISTER_REQ ,"000000", "");
     unsigned char pdu_package[78] = {"\n"};
-    pdu_package[0] = 0x00;
-    // strcpy((char *)&pdu_package[0], (const char *)pdu_reg_request.pdu_type);
-    strcpy((char *)&pdu_package[1], (const char *)pdu_reg_request.system_id);
-    strcpy((char *)&pdu_package[1 + 7], (const char *)pdu_reg_request.mac_address);
-    strcpy((char *)&pdu_package[1 + 7 + 13], (const char *)pdu_reg_request.random_number);
-    strcpy((char *)&pdu_package[1 + 7 + 13 + 7], (const char *)pdu_reg_request.data);
+    pdu_package[0] = REGISTER_REQ;
+    strcpy((char *)&pdu_package[1], (const char *)pdu_reg_req.system_id);
+    strcpy((char *)&pdu_package[1 + 7], (const char *)pdu_reg_req.mac_address);
+    strcpy((char *)&pdu_package[1 + 7 + 13], (const char *)pdu_reg_req.random_number);
+    strcpy((char *)&pdu_package[1 + 7 + 13 + 7], (const char *)pdu_reg_req.data);
 
     int interval = T;
     int packets_sent = 0;
@@ -303,7 +294,6 @@ void connection_phase(int status, struct cfg user_cfg)
             {
                 // Resend the registration package
                 show_status("MSG.  =>  Client passa a l'estat:", status);
-                // printf("Resending registration package...\n");
             }
         }
         else // Response received
@@ -320,21 +310,14 @@ void connection_phase(int status, struct cfg user_cfg)
             case REGISTER_ACK: // 0x02
                 status = REGISTERED;
                 char random_num[8];
-                random_num[8] = '\n';
-                for (int i = 0; i < 7; i++)
-                {
-                    random_num[i] = pdu_package[21 + i];
-                }
-                printf("Random numero leido es: %s\n", random_num);
                 char port[5];
+                copyElements((char*)pdu_package, random_num, 21, 8);
+                copyElements((char*)pdu_package, port, 28, 4);
+                random_num[8] = '\n';
                 port[5] = '\n';
-                for (int i = 0; i < 4; i++)
-                {
-                    port[i] = pdu_package[28 + i];
-                }
-                printf("Port number: %s\n", port);
-                printf("REGISTERED\n");
-                // ENTERING ALIVE MODE
+                //printf("Random numero leido es: %s\n", random_num);
+                //printf("Port number: %s\n", port);
+                // alive_phase();
                 break;
             case REGISTER_NACK: // 0x04
                 process_made += 1;
@@ -363,14 +346,33 @@ void connection_phase(int status, struct cfg user_cfg)
         }
     }
 }
-struct pdu_udp generate_pdu_request(struct cfg user_cfg)
+void copyElements(char *src, char *dest, int start, int numElements)
+{
+    int i;
+    for (i = 0; i < numElements; i++)
+    {
+        dest[i] = src[start + i];
+    }
+}
+struct pdu_udp generate_pdu(struct cfg user_cfg, int pdu_type, char random_number[], char data[])
 {
     struct pdu_udp pdu;
     memset(&pdu, 0, sizeof(pdu)); // To ensure pdu structure is all initialized with zero
-    pdu.pdu_type = 0x00;
+    pdu.pdu_type = pdu_type;
     strcpy((char *)pdu.system_id, (const char *)user_cfg.id);
     strcpy((char *)pdu.mac_address, (const char *)user_cfg.mac);
-    strcpy((char *)pdu.random_number, (const char *)"000000");
-    strcpy((char *)pdu.data, (const char *)"");
+    strcpy((char *)pdu.random_number, (const char *)random_number);
+    strcpy((char *)pdu.data, (const char *)data);
     return pdu;
+}
+void alive_phase(int argc, char *argv[], int sockfd, int status, struct cfg user_cfg, struct sockaddr_in client_address )
+{
+    // Create PDU ALIVE_INF package
+    struct pdu_udp pdu_alive_inf = generate_pdu(user_cfg, ALIVE_INF ,"000000", "");
+    unsigned char pdu_package[78] = {"\n"};
+    pdu_package[0] = ALIVE_INF;
+    strcpy((char *)&pdu_package[1], (const char *)pdu_alive_inf.system_id);
+    strcpy((char *)&pdu_package[1 + 7], (const char *)pdu_alive_inf.mac_address);
+    strcpy((char *)&pdu_package[1 + 7 + 13], (const char *)pdu_alive_inf.random_number);
+    strcpy((char *)&pdu_package[1 + 7 + 13 + 7], (const char *)pdu_alive_inf.data);
 }
