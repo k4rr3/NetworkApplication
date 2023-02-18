@@ -64,7 +64,7 @@ void show_status(char text[], int status);
 void connection_phase(int status, struct cfg user_cfg);
 struct pdu_udp generate_pdu(struct cfg user_cfg, int pdu_type, char random_number[], char data[]);
 void copyElements(char *src, char *dest, int start, int numElements);
-void alive_phase(int argc, char *argv[], int sockfd, int status, struct cfg user_cfg, struct sockaddr_in client_address );
+void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in server_address, char random_num[], char tcp_port[] );
 
 int main(int argc, char *argv[])
 {
@@ -309,15 +309,13 @@ void connection_phase(int status, struct cfg user_cfg)
             {
             case REGISTER_ACK: // 0x02
                 status = REGISTERED;
-                char random_num[8];
+                char random_num[7];
                 char port[5];
-                copyElements((char*)pdu_package, random_num, 21, 8);
+                copyElements((char*)pdu_package, random_num, 21, 6);
                 copyElements((char*)pdu_package, port, 28, 4);
-                random_num[8] = '\n';
-                port[5] = '\n';
-                //printf("Random numero leido es: %s\n", random_num);
+                printf("Random numero leido es: %s\n", random_num);
                 //printf("Port number: %s\n", port);
-                // alive_phase();
+                alive_phase(sockfd, status, user_cfg, server_address, random_num, port);
                 break;
             case REGISTER_NACK: // 0x04
                 process_made += 1;
@@ -365,14 +363,20 @@ struct pdu_udp generate_pdu(struct cfg user_cfg, int pdu_type, char random_numbe
     strcpy((char *)pdu.data, (const char *)data);
     return pdu;
 }
-void alive_phase(int argc, char *argv[], int sockfd, int status, struct cfg user_cfg, struct sockaddr_in client_address )
+void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in server_address, char random_num[], char tcp_port[] )
 {
     // Create PDU ALIVE_INF package
-    struct pdu_udp pdu_alive_inf = generate_pdu(user_cfg, ALIVE_INF ,"000000", "");
+    struct pdu_udp pdu_alive_inf = generate_pdu(user_cfg, ALIVE_INF ,random_num, "");
     unsigned char pdu_package[78] = {"\n"};
     pdu_package[0] = ALIVE_INF;
     strcpy((char *)&pdu_package[1], (const char *)pdu_alive_inf.system_id);
     strcpy((char *)&pdu_package[1 + 7], (const char *)pdu_alive_inf.mac_address);
     strcpy((char *)&pdu_package[1 + 7 + 13], (const char *)pdu_alive_inf.random_number);
     strcpy((char *)&pdu_package[1 + 7 + 13 + 7], (const char *)pdu_alive_inf.data);
+
+    if (sendto(sockfd, pdu_package, 78, 0, (struct sockaddr *)&server_address, sizeof(server_address)) < 0)
+        {
+            perror("sendto() failed");
+            exit(-1);
+        }
 }
