@@ -17,6 +17,9 @@
 #define U 2
 #define N 6
 #define O 2
+
+#define R 2
+#define S 3
 // STATUS AND PDU ENUMS
 enum status
 {
@@ -64,7 +67,7 @@ void show_status(char text[], int status);
 void connection_phase(int status, struct cfg user_cfg);
 struct pdu_udp generate_pdu(struct cfg user_cfg, int pdu_type, char random_number[], char data[]);
 void copyElements(char *src, char *dest, int start, int numElements);
-void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in server_address, char random_num[], char tcp_port[] );
+void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in server_address, char random_num[], char tcp_port[]);
 
 int main(int argc, char *argv[])
 {
@@ -168,7 +171,7 @@ char *get_line(char line[], FILE *file)
         word = strtok(NULL, " ");
         return word;
     }
-    perror("An error ocurred when opening .cfg file");
+    perror("An error ocurred while opening .cfg file");
     exit(1);
 }
 
@@ -227,7 +230,7 @@ void connection_phase(int status, struct cfg user_cfg)
     server_address.sin_port = htons(atoi((const char *)user_cfg.nms_udp_port));
 
     // Create PDU REGISTER_REQ package
-    struct pdu_udp pdu_reg_req = generate_pdu(user_cfg, REGISTER_REQ ,"000000", "");
+    struct pdu_udp pdu_reg_req = generate_pdu(user_cfg, REGISTER_REQ, "000000", "");
     unsigned char pdu_package[78] = {"\n"};
     pdu_package[0] = REGISTER_REQ;
     strcpy((char *)&pdu_package[1], (const char *)pdu_reg_req.system_id);
@@ -255,8 +258,8 @@ void connection_phase(int status, struct cfg user_cfg)
 
         // Wait for a response from the server
         fd_set read_fds;
-        FD_ZERO(&read_fds);
-        FD_SET(sockfd, &read_fds);
+        FD_ZERO(&read_fds);        // clears the file descriptor set read_fds and initializes it to the empty set.
+        FD_SET(sockfd, &read_fds); // Adds the sockfd file descriptor to the read_fds set
         struct timeval timeout = {interval, 0};
         int select_status = select(sockfd + 1, &read_fds, NULL, NULL, &timeout);
         if (select_status == -1)
@@ -311,10 +314,10 @@ void connection_phase(int status, struct cfg user_cfg)
                 status = REGISTERED;
                 char random_num[7];
                 char port[5];
-                copyElements((char*)pdu_package, random_num, 21, 6);
-                copyElements((char*)pdu_package, port, 28, 4);
+                copyElements((char *)pdu_package, random_num, 21, 6);
+                copyElements((char *)pdu_package, port, 28, 4);
                 printf("Random numero leido es: %s\n", random_num);
-                //printf("Port number: %s\n", port);
+                // printf("Port number: %s\n", port);
                 alive_phase(sockfd, status, user_cfg, server_address, random_num, port);
                 break;
             case REGISTER_NACK: // 0x04
@@ -363,10 +366,10 @@ struct pdu_udp generate_pdu(struct cfg user_cfg, int pdu_type, char random_numbe
     strcpy((char *)pdu.data, (const char *)data);
     return pdu;
 }
-void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in server_address, char random_num[], char tcp_port[] )
+void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in server_address, char random_num[], char tcp_port[])
 {
     // Create PDU ALIVE_INF package
-    struct pdu_udp pdu_alive_inf = generate_pdu(user_cfg, ALIVE_INF ,random_num, "");
+    struct pdu_udp pdu_alive_inf = generate_pdu(user_cfg, ALIVE_INF, random_num, "");
     unsigned char pdu_package[78] = {"\n"};
     pdu_package[0] = ALIVE_INF;
     strcpy((char *)&pdu_package[1], (const char *)pdu_alive_inf.system_id);
@@ -375,8 +378,44 @@ void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in
     strcpy((char *)&pdu_package[1 + 7 + 13 + 7], (const char *)pdu_alive_inf.data);
 
     if (sendto(sockfd, pdu_package, 78, 0, (struct sockaddr *)&server_address, sizeof(server_address)) < 0)
+    {
+        perror("sendto() failed");
+        exit(-1);
+    }
+
+    while (status != DISCONNECTED)
+    {
+        fd_set read_fds;
+        FD_ZERO(&read_fds);        // clears the file descriptor set read_fds and initializes it to the empty set.
+        FD_SET(sockfd, &read_fds); // Adds the sockfd file descriptor to the read_fds set
+        struct timeval timeout = {R, 0};
+        int select_status = select(sockfd + 1, &read_fds, NULL, NULL, &timeout);
+        if (select_status == -1)
         {
-            perror("sendto() failed");
+            perror("select() failed");
             exit(-1);
         }
+        else if (select_status == 0) // Timeout occurred
+        {
+            int received_bytes = recvfrom(sockfd, pdu_package, 78, 0, (struct sockaddr *)&server_address, &(socklen_t){sizeof(server_address)});
+            if (received_bytes < 0)
+            {
+                perror("recvfrom() failed");
+                exit(-1);
+            }
+            pdu_package[received_bytes] = '\0';
+            switch (pdu_package[0])
+            {
+            case ALIVE_ACK:
+                /* code */
+                break;
+            
+            default:
+                break;
+            }
+        }
+        else // Response received
+        {
+        }
+    }
 }
