@@ -371,6 +371,8 @@ struct pdu_udp generate_pdu(struct cfg user_cfg, int pdu_type, char random_numbe
 }
 void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in server_address, struct pdu_udp received_reg_pdu)
 {
+
+    time_t current_time, last_sent_pkg_time;
     // Create PDU ALIVE_INF package
     struct pdu_udp pdu_alive_inf = generate_pdu(user_cfg, ALIVE_INF, received_reg_pdu.random_number, "");
     unsigned char pdu_package[78] = {"\n"};
@@ -379,16 +381,18 @@ void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in
     strcpy((char *)&pdu_package[1 + 7], (const char *)pdu_alive_inf.mac_address);
     strcpy((char *)&pdu_package[1 + 7 + 13], (const char *)pdu_alive_inf.random_number);
     strcpy((char *)&pdu_package[1 + 7 + 13 + 7], (const char *)pdu_alive_inf.data);
-    int alive_confirms = 0;
+    int non_confirmated_alives = 0;
 
-    while (status != DISCONNECTED && alive_confirms < S)
+    while (status != DISCONNECTED && non_confirmated_alives < S)
     {
         if (sendto(sockfd, pdu_package, 78, 0, (struct sockaddr *)&server_address, sizeof(server_address)) < 0)
         {
             perror("sendto() failed");
             exit(-1);
         }
-        show_status(" DEBUG =>  Enviat: ",-1);
+
+        last_sent_pkg_time = time(NULL);
+        show_status(" DEBUG =>  Enviat: ", -1);
         printf("bytes=%d, comanda=%d, id=%s, mac=%s, alea=%s  dades=%s\n", 78, status, pdu_alive_inf.system_id, pdu_alive_inf.mac_address, pdu_alive_inf.random_number, pdu_alive_inf.data);
         fd_set read_fds;
         FD_ZERO(&read_fds);        // clears the file descriptor set read_fds and initializes it to the empty set.
@@ -402,19 +406,21 @@ void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in
         }
         else if (select_status == 0) // Timeout occurred
         {
+            non_confirmated_alives += 1;
         }
         else // Response received
         {
-            int received_bytes = recvfrom(sockfd, pdu_package, 78, 0, (struct sockaddr *)&server_address, &(socklen_t){sizeof(server_address)});
+            unsigned char pdu_received_alive[78] = {"\n"};
+            int received_bytes = recvfrom(sockfd, pdu_received_alive, 78, 0, (struct sockaddr *)&server_address, &(socklen_t){sizeof(server_address)});
             if (received_bytes < 0)
             {
                 perror("recvfrom() failed");
                 exit(-1);
             }
-            pdu_package[received_bytes] = '\0';
-            show_status(" DEBUG =>  Rebut: ",-1);
+            pdu_received_alive[received_bytes] = '\0';
+            show_status(" DEBUG =>  Rebut: ", -1);
             printf("bytes=%d, comanda=%d, id=%s, mac=%s, alea=%s  dades=%s\n", 78, status, pdu_alive_inf.system_id, pdu_alive_inf.mac_address, pdu_alive_inf.random_number, pdu_alive_inf.data);
-            switch (pdu_package[0])
+            switch (pdu_received_alive[0])
             {
             case ALIVE_ACK:
                 if (status == REGISTERED)
@@ -424,7 +430,7 @@ void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in
                     show_status("DEBUG =>  Creat procés per gestionar alives\n", -1);
                     show_status("DEBUG =>  Establert temporitzador per enviament alives\n", -1);
                 }
-                struct pdu_udp received_alive_pdu = unpack_pdu((char *)pdu_package);
+                struct pdu_udp received_alive_pdu = unpack_pdu((char *)pdu_received_alive);
                 if (check_subscription(received_alive_pdu, received_reg_pdu) == 0)
                 {
                     show_status("INFO  =>  Acceptada subscripció amb servidor: ", -1);
@@ -446,9 +452,14 @@ void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in
 
             case ALIVE_NACK:
                 show_status("INFO => ALIVE_NACK rebut, es considera com no haver rebut resposta del servidor\n", -1);
+                non_confirmated_alives += 1;
                 break;
             }
         }
+
+        current_time = time(NULL);
+        sleep(R - (current_time - last_sent_pkg_time)); // Calculate if select already executed the Rs timeout
+        last_sent_pkg_time = time(NULL);
     }
     status = DISCONNECTED;
     connection_phase(status, user_cfg);
