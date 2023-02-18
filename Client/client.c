@@ -315,7 +315,6 @@ void connection_phase(int status, struct cfg user_cfg)
             case REGISTER_ACK: // 0x02
                 status = REGISTERED;
                 struct pdu_udp received_reg_pdu = unpack_pdu((char *)pdu_package);
-                /* char random_num[7];
                 char port[5];
                 copyElements((char *)pdu_package, random_num, 21, 6);
                 copyElements((char *)pdu_package, port, 28, 4);
@@ -398,7 +397,7 @@ void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in
         FD_ZERO(&read_fds);        // clears the file descriptor set read_fds and initializes it to the empty set.
         FD_SET(sockfd, &read_fds); // Adds the sockfd file descriptor to the read_fds set
         struct timeval timeout = {R, 0};
-        int select_status = select(sockfd + 1, &read_fds, NULL, NULL, &timeout);
+        int select_status = select(sockfd + 1, &read_fds, NULL, NULL, &timeout);// sockfd+1 to ensure that all file descriptors in the range [0, sockfd] are examined.
         if (select_status == -1)
         {
             perror("select() failed");
@@ -458,8 +457,7 @@ void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in
         }
 
         current_time = time(NULL);
-        sleep(R - (current_time - last_sent_pkg_time)); // Calculate if select already executed the Rs timeout
-        last_sent_pkg_time = time(NULL);
+        sleep(R - (current_time - last_sent_pkg_time)); // Calculate if select() already executed the Rs timeout
     }
     status = DISCONNECTED;
     connection_phase(status, user_cfg);
