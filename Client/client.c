@@ -44,6 +44,24 @@ enum pdu_alive
     ALIVE_NACK = 0x14,
     ALIVE_REJ = 0x16
 };
+enum pdu_send_cfg
+{
+    SEND_FILE = 0x20,
+    SEND_DATA = 0x22,
+    SEND_ACK = 0x24,
+    SEND_NACK = 0x26,
+    SEND_REJ = 0x28,
+    SEND_END = 0x2A
+};
+enum pdu_get_cfg
+{
+    GET_FILE = 0x30,
+    GET_DATA = 0x32,
+    GET_ACK = 0x34,
+    GET_NACK = 0x36,
+    GET_REJ = 0x38,
+    GET_END = 0x3A
+};
 struct cfg
 {
     unsigned char id[7];
@@ -73,8 +91,9 @@ char *extractElements(char *src, int start, int numElements);
 int check_subscription(struct pdu_udp pdu1, struct pdu_udp pdu2);
 char *commands(int command);
 int known_command(char command[]);
-void command_phase(struct cfg user_config, char *command, struct pdu_udp received_reg_pdu);
-void send_cfg(struct cfg user_config, struct pdu_udp received_reg_pdu);
+void command_phase(struct cfg user_config, char *command, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address);
+void send_cfg(struct cfg user_config, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address);
+long int get_file_size(const char *filename);
 
 int main(int argc, char *argv[])
 {
@@ -434,11 +453,11 @@ void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in
         else if (select_status != 0) // Command was detected in fd0(stdin)
         {
             char command[10];
-            fgets(command, 10, stdin); // Reading what the user entered from the fd0
-            command[strcspn(command, "\n")] = 0;
+            fgets(command, 10, stdin);           // Reading what the user entered from the fd0
+            command[strcspn(command, "\n")] = 0; // Deleting the \n that fgets function sets by default at the end of the array where input was written
             if (known_command(command))
             {
-                command_phase(user_cfg, command, received_reg_pdu); // tcp_phase
+                command_phase(user_cfg, command, received_reg_pdu, server_address); // tcp_phase
             }
             else
             {
@@ -548,14 +567,13 @@ int known_command(char command[])
 //
 // COMMAND EXECUTION PHASE
 //
-void command_phase(struct cfg user_config, char *command, struct pdu_udp received_reg_pdu)
+void command_phase(struct cfg user_config, char *command, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address)
 {
-    printf("\n\n COMMAND");
-    if (strcmp((const char *)command, "send-cfg"))
+    if (strcmp((const char *)command, "send-cfg") == 0) // strcmp returns 0 if both strings are equal
     {
-        send_cfg(user_config, received_reg_pdu);
+        send_cfg(user_config, received_reg_pdu, server_address);
     }
-    else if (strcmp((const char *)command, "get-cfg"))
+    else if (strcmp((const char *)command, "get-cfg") == 0)
     {
     }
     else
@@ -564,10 +582,9 @@ void command_phase(struct cfg user_config, char *command, struct pdu_udp receive
     }
 }
 
-void send_cfg(struct cfg user_config, struct pdu_udp received_reg_pdu)
+void send_cfg(struct cfg user_config, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address)
 {
     int sockfd;
-    struct sockaddr_in servaddr;
 
     // socket create and verification
     sockfd = socket(AF_INET, SOCK_STREAM, 0);
@@ -580,22 +597,42 @@ void send_cfg(struct cfg user_config, struct pdu_udp received_reg_pdu)
         printf("Socket successfully created..\n");
     // bzero(&servaddr, sizeof(servaddr));
 
-    // assign IP, PORT
-    servaddr.sin_family = AF_INET;
-    servaddr.sin_addr.s_addr = inet_addr((const char *)"127.0.0.1");
-    servaddr.sin_port = htons(atoi(received_reg_pdu.data));
+    // Assign the port received from the REGISTER_ACK to the sockaddr_in for tcp file sharing
+    server_address.sin_port = htons(atoi(received_reg_pdu.data));
 
     // connect the client socket to server socket
-    if (connect(sockfd, (struct sockaddr *)&servaddr, sizeof(servaddr)) != 0)
+    if (connect(sockfd, (struct sockaddr *)&server_address, sizeof(server_address)) != 0)
     {
-        printf("connection with the server failed...\n");
-        exit(0);
+        perror("connect() failed:");
+        exit(-1);
     }
-    else
-        printf("connected to the server..\n");
-
-    // function for chat
-
+    long int file_size = get_file_size("boot.cfg");
+    if (file_size == -1)
+    {
+        printf("Error: Could not open file.\n");
+    }
+    char data[150];
+    snprintf(data, sizeof(data), "%s,%ld", "boot.cfg", file_size);
+    struct pdu_udp try_send_file_pdu = generate_pdu(user_config, SEND_FILE, received_reg_pdu.random_number, data);
+    unsigned char pdu_package[178] = {"\n"};
+    pdu_package[0] = SEND_FILE;
+    strcpy((char *)&pdu_package[1], (const char *)try_send_file_pdu.system_id);
+    strcpy((char *)&pdu_package[1 + 7], (const char *)try_send_file_pdu.mac_address);
+    strcpy((char *)&pdu_package[1 + 7 + 13], (const char *)try_send_file_pdu.random_number);
+    strcpy((char *)&pdu_package[1 + 7 + 13 + 7], (const char *)try_send_file_pdu.data);
+    send(sockfd, pdu_package, sizeof(pdu_package), 0);
     // close the socket
     close(sockfd);
+}
+long int get_file_size(const char *filename)
+{
+    FILE *file = fopen(filename, "rb");
+    if (file == NULL)
+    {
+        return -1;
+    }
+    fseek(file, 0, SEEK_END);
+    long int size = ftell(file);
+    fclose(file);
+    return size;
 }
