@@ -73,9 +73,10 @@ char *extractElements(char *src, int start, int numElements);
 int check_subscription(struct pdu_udp pdu1, struct pdu_udp pdu2);
 char *commands(int command);
 int known_command(char command[]);
-void command_phase(struct cfg user_config, char *command);
+void command_phase(struct cfg user_config, char *command, struct pdu_udp received_reg_pdu);
+void send_cfg(struct cfg user_config, struct pdu_udp received_reg_pdu);
 
-    int main(int argc, char *argv[])
+int main(int argc, char *argv[])
 {
     int status = DISCONNECTED;
     // int debug = check_debug_mode(argc, argv);
@@ -432,11 +433,12 @@ void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in
         }
         else if (select_status != 0) // Command was detected in fd0(stdin)
         {
-            char command[100];
-            fgets(command, 100, stdin); // Reading what the user entered from the fd0
-            if (known_command(command) == 0)
+            char command[10];
+            fgets(command, 10, stdin); // Reading what the user entered from the fd0
+            command[strcspn(command, "\n")] = 0;
+            if (known_command(command))
             {
-                command_phase(user_cfg, command); // tcp_phase
+                command_phase(user_cfg, command, received_reg_pdu); // tcp_phase
             }
             else
             {
@@ -484,11 +486,6 @@ void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in
                             show_status("INFO  =>  Denegada subscripció amb servidor: ", -1);
                             printf("%s\n \t(id: %s, mac: %s, alea:%s, port tcp: %s)\n", user_cfg.nms_id, received_alive_pdu.system_id, received_alive_pdu.mac_address, received_alive_pdu.random_number, user_cfg.nms_udp_port);
                         }
-                    }
-                    else
-                    {
-                        show_status("INFO  =>  Acceptat ALIVE", -1);
-                        printf(" ( Servidor id: %s, mac: %s, alea:%s, port tcp: %s)\n", received_alive_pdu.system_id, received_alive_pdu.mac_address, received_alive_pdu.random_number, user_cfg.nms_udp_port);
                     }
                     break;
                 case ALIVE_REJ:
@@ -545,17 +542,18 @@ int check_subscription(struct pdu_udp pdu1, struct pdu_udp pdu2)
 }
 int known_command(char command[])
 {
-    return strcmp((const char *)command, "send-cfg") || strcmp((const char *)command, "get-cfg") || strcmp((const char *)command, "quit");
+    return strcmp((const char *)command, "send-cfg") == 0 || strcmp((const char *)command, "get-cfg") == 0 || strcmp((const char *)command, "quit") == 0;
 }
 
 //
 // COMMAND EXECUTION PHASE
 //
-void command_phase(struct cfg user_config, char *command)
+void command_phase(struct cfg user_config, char *command, struct pdu_udp received_reg_pdu)
 {
+    printf("\n\n COMMAND");
     if (strcmp((const char *)command, "send-cfg"))
     {
-        /* code */
+        send_cfg(user_config, received_reg_pdu);
     }
     else if (strcmp((const char *)command, "get-cfg"))
     {
@@ -564,4 +562,40 @@ void command_phase(struct cfg user_config, char *command)
     {
         exit(0); // Client finished due to quit command
     }
+}
+
+void send_cfg(struct cfg user_config, struct pdu_udp received_reg_pdu)
+{
+    int sockfd;
+    struct sockaddr_in servaddr;
+
+    // socket create and verification
+    sockfd = socket(AF_INET, SOCK_STREAM, 0);
+    if (sockfd == -1)
+    {
+        printf("socket creation failed...\n");
+        exit(0);
+    }
+    else
+        printf("Socket successfully created..\n");
+    // bzero(&servaddr, sizeof(servaddr));
+
+    // assign IP, PORT
+    servaddr.sin_family = AF_INET;
+    servaddr.sin_addr.s_addr = inet_addr((const char *)"127.0.0.1");
+    servaddr.sin_port = htons(atoi(received_reg_pdu.data));
+
+    // connect the client socket to server socket
+    if (connect(sockfd, (struct sockaddr *)&servaddr, sizeof(servaddr)) != 0)
+    {
+        printf("connection with the server failed...\n");
+        exit(0);
+    }
+    else
+        printf("connected to the server..\n");
+
+    // function for chat
+
+    // close the socket
+    close(sockfd);
 }
