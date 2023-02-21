@@ -10,6 +10,8 @@
 #include <time.h>
 
 #define MAX_LEN 20
+#define UDP_PKG_SIZE 78
+#define TCP_PKG_SIZE 178
 // TIMERS AND THRESHOLDS
 #define T 1
 #define P 2
@@ -71,7 +73,7 @@ struct cfg
     unsigned char nms_id[13];
     unsigned char nms_udp_port[5];
 };
-struct pdu_udp
+struct pdu
 {
     unsigned char pdu_type;
     char system_id[7];
@@ -85,16 +87,17 @@ char *get_file_name(int argc, char *argv[]);
 char *get_line(char line[], FILE *file);
 void show_status(char text[], int status);
 void connection_phase(int status, struct cfg user_cfg);
-struct pdu_udp generate_pdu(struct cfg user_cfg, int pdu_type, char random_number[], char data[]);
+struct pdu generate_pdu(struct cfg user_cfg, int pdu_type, char random_number[], char data[]);
+void generate_pdu_array(struct pdu pdu, unsigned char pdu_package[], int array_size);
 void copyElements(char *src, char *dest, int start, int numElements);
-void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in server_address, struct pdu_udp received_reg_pdu);
-struct pdu_udp unpack_pdu(char pdu_package[]);
+void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in server_address, struct pdu received_reg_pdu);
+struct pdu unpack_pdu(char pdu_package[]);
 char *extractElements(char *src, int start, int numElements);
-int check_equal_pdu(struct pdu_udp pdu1, struct pdu_udp pdu2);
+int check_equal_pdu(struct pdu pdu1, struct pdu pdu2);
 char *commands(int command);
 int known_command(char command[]);
-void command_phase(struct cfg user_config, char *command, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address);
-void send_cfg(struct cfg user_config, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address);
+void command_phase(struct cfg user_config, char *command, struct pdu received_reg_pdu, struct sockaddr_in server_address);
+void send_cfg(struct cfg user_config, struct pdu received_reg_pdu, struct sockaddr_in server_address);
 long int get_file_size(const char *filename);
 
 int main(int argc, char *argv[])
@@ -293,14 +296,9 @@ void connection_phase(int status, struct cfg user_cfg)
     server_address.sin_port = htons(atoi((const char *)user_cfg.nms_udp_port));
 
     // Create PDU REGISTER_REQ package
-    struct pdu_udp pdu_reg_req = generate_pdu(user_cfg, REGISTER_REQ, "000000", "");
-    unsigned char pdu_package[78] = {"\n"};
-    pdu_package[0] = REGISTER_REQ;
-    strcpy((char *)&pdu_package[1], (const char *)pdu_reg_req.system_id);
-    strcpy((char *)&pdu_package[1 + 7], (const char *)pdu_reg_req.mac_address);
-    strcpy((char *)&pdu_package[1 + 7 + 13], (const char *)pdu_reg_req.random_number);
-    strcpy((char *)&pdu_package[1 + 7 + 13 + 7], (const char *)pdu_reg_req.data);
-
+    struct pdu pdu_reg_req = generate_pdu(user_cfg, REGISTER_REQ, "000000", "");
+    unsigned char pdu_package[UDP_PKG_SIZE];
+    generate_pdu_array(pdu_reg_req, pdu_package, UDP_PKG_SIZE);
     int interval = T;
     int packets_sent = 0;
     int process_made = 1;
@@ -312,7 +310,7 @@ void connection_phase(int status, struct cfg user_cfg)
     while (status != REGISTERED && status != DISCONNECTED && process_made <= O)
     {
         // Send register package to the server
-        if (sendto(sockfd, pdu_package, 78, 0, (struct sockaddr *)&server_address, sizeof(server_address)) < 0)
+        if (sendto(sockfd, pdu_package, UDP_PKG_SIZE, 0, (struct sockaddr *)&server_address, sizeof(server_address)) < 0)
         {
             perror("sendto() failed");
             exit(-1);
@@ -364,7 +362,7 @@ void connection_phase(int status, struct cfg user_cfg)
         }
         else // Response received
         {
-            int has_received_pkg = recvfrom(sockfd, pdu_package, 78, 0, (struct sockaddr *)&server_address, &(socklen_t){sizeof(server_address)});
+            int has_received_pkg = recvfrom(sockfd, pdu_package, UDP_PKG_SIZE, 0, (struct sockaddr *)&server_address, &(socklen_t){sizeof(server_address)});
             if (has_received_pkg < 0)
             {
                 perror("recvfrom() failed");
@@ -375,7 +373,7 @@ void connection_phase(int status, struct cfg user_cfg)
             {
             case REGISTER_ACK: // 0x02
                 status = REGISTERED;
-                struct pdu_udp received_reg_pdu = unpack_pdu((char *)pdu_package);
+                struct pdu received_reg_pdu = unpack_pdu((char *)pdu_package);
                 alive_phase(sockfd, status, user_cfg, server_address, received_reg_pdu);
                 break;
             case REGISTER_NACK: // 0x04
@@ -413,9 +411,9 @@ void copyElements(char *src, char *dest, int start, int numElements)
         dest[i] = src[start + i];
     }
 }
-struct pdu_udp generate_pdu(struct cfg user_cfg, int pdu_type, char random_number[], char data[])
+struct pdu generate_pdu(struct cfg user_cfg, int pdu_type, char random_number[], char data[])
 {
-    struct pdu_udp pdu;
+    struct pdu pdu;
     memset(&pdu, 0, sizeof(pdu)); // To ensure pdu structure is all initialized with zero
     pdu.pdu_type = pdu_type;
     strcpy((char *)pdu.system_id, (const char *)user_cfg.id);
@@ -424,7 +422,7 @@ struct pdu_udp generate_pdu(struct cfg user_cfg, int pdu_type, char random_numbe
     strcpy((char *)pdu.data, (const char *)data);
     return pdu;
 }
-void generate_pdu_array(struct pdu_udp pdu, unsigned char pdu_package[], int array_size)
+void generate_pdu_array(struct pdu pdu, unsigned char pdu_package[], int array_size)
 {
     pdu_package[0] = pdu.pdu_type;
     strcpy((char *)&pdu_package[1], (const char *)pdu.system_id);
@@ -432,23 +430,35 @@ void generate_pdu_array(struct pdu_udp pdu, unsigned char pdu_package[], int arr
     strcpy((char *)&pdu_package[1 + 7 + 13], (const char *)pdu.random_number);
     strcpy((char *)&pdu_package[1 + 7 + 13 + 7], (const char *)pdu.data);
 }
-
-void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in server_address, struct pdu_udp received_reg_pdu)
+struct pdu unpack_pdu(char pdu_package[])
+{
+    struct pdu pdu;
+    memset(&pdu, 0, sizeof(pdu)); // To ensure pdu structure is all initialized with zero
+    pdu.pdu_type = pdu_package[0];
+    strcpy((char *)pdu.system_id, extractElements(pdu_package, 1, 6));
+    strcpy((char *)pdu.mac_address, extractElements(pdu_package, 1 + 7, 12));
+    strcpy((char *)pdu.random_number, extractElements(pdu_package, 1 + 7 + 13, 6));
+    strcpy((char *)pdu.data, extractElements(pdu_package, 1 + 7 + 13 + 7, 49));
+    return pdu;
+}
+int check_equal_pdu(struct pdu pdu1, struct pdu pdu2)
+{
+    int equal = 0;
+    equal = strcmp(pdu1.system_id, pdu2.system_id);
+    equal = strcmp(pdu1.mac_address, pdu2.mac_address);
+    equal = strcmp(pdu1.random_number, pdu2.random_number);
+    return equal;
+}
+void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in server_address, struct pdu received_reg_pdu)
 {
     show_status("DEBUG =>  Creat procés per gestionar alives\n", -1);
     show_status("DEBUG =>  Establert temporitzador per enviament alives\n", -1);
     time_t current_time, last_sent_pkg_time;
     struct timeval timeout = {R, 0};
     // Create PDU ALIVE_INF package
-    struct pdu_udp pdu_alive_inf = generate_pdu(user_cfg, ALIVE_INF, received_reg_pdu.random_number, "");
-    /* unsigned char pdu_package[78] = {"\n"};
-    pdu_package[0] = ALIVE_INF;
-    strcpy((char *)&pdu_package[1], (const char *)pdu_alive_inf.system_id);
-    strcpy((char *)&pdu_package[1 + 7], (const char *)pdu_alive_inf.mac_address);
-    strcpy((char *)&pdu_package[1 + 7 + 13], (const char *)pdu_alive_inf.random_number);
-    strcpy((char *)&pdu_package[1 + 7 + 13 + 7], (const char *)pdu_alive_inf.data); */
-    unsigned char pdu_package[78];
-    generate_pdu_array(pdu_alive_inf, pdu_package, 78);
+    struct pdu pdu_alive_inf = generate_pdu(user_cfg, ALIVE_INF, received_reg_pdu.random_number, "");
+    unsigned char pdu_package[UDP_PKG_SIZE];
+    generate_pdu_array(pdu_alive_inf, pdu_package, UDP_PKG_SIZE);
 
     int non_confirmated_alives = 0;
 
@@ -480,7 +490,7 @@ void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in
         }
         else //// Timeout occurred
         {
-            if (sendto(sockfd, pdu_package, 78, 0, (struct sockaddr *)&server_address, sizeof(server_address)) < 0)
+            if (sendto(sockfd, pdu_package, UDP_PKG_SIZE, 0, (struct sockaddr *)&server_address, sizeof(server_address)) < 0)
             {
                 perror("sendto() failed");
                 exit(-1);
@@ -488,19 +498,19 @@ void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in
 
             last_sent_pkg_time = time(NULL);
             show_status(" DEBUG =>  Enviat: ", -1);
-            printf("bytes=%d, comanda=%s id=%s, mac=%s, alea=%s  dades=%s\n", 78, commands(pdu_alive_inf.pdu_type), pdu_alive_inf.system_id, pdu_alive_inf.mac_address, pdu_alive_inf.random_number, pdu_alive_inf.data);
+            printf("bytes=%d, comanda=%s id=%s, mac=%s, alea=%s  dades=%s\n", UDP_PKG_SIZE, commands(pdu_alive_inf.pdu_type), pdu_alive_inf.system_id, pdu_alive_inf.mac_address, pdu_alive_inf.random_number, pdu_alive_inf.data);
 
-            unsigned char pdu_received_alive[78] = {"\n"};
-            int has_received_pkg = recvfrom(sockfd, pdu_received_alive, 78, 0, (struct sockaddr *)&server_address, &(socklen_t){sizeof(server_address)});
+            unsigned char pdu_received_alive[UDP_PKG_SIZE] = {"\n"};
+            int has_received_pkg = recvfrom(sockfd, pdu_received_alive, UDP_PKG_SIZE, 0, (struct sockaddr *)&server_address, &(socklen_t){sizeof(server_address)});
             if (has_received_pkg < 0)
             {
                 non_confirmated_alives += 1;
             }
             else
             {
-                struct pdu_udp received_alive_pdu = unpack_pdu((char *)pdu_received_alive);
+                struct pdu received_alive_pdu = unpack_pdu((char *)pdu_received_alive);
                 show_status(" DEBUG =>  Rebut: ", -1);
-                printf("bytes=%d, comanda=%s, id=%s, mac=%s, alea=%s  dades=%s\n", 78, commands(received_alive_pdu.pdu_type), pdu_alive_inf.system_id, pdu_alive_inf.mac_address, pdu_alive_inf.random_number, pdu_alive_inf.data);
+                printf("bytes=%d, comanda=%s, id=%s, mac=%s, alea=%s  dades=%s\n", UDP_PKG_SIZE, commands(received_alive_pdu.pdu_type), pdu_alive_inf.system_id, pdu_alive_inf.mac_address, pdu_alive_inf.random_number, pdu_alive_inf.data);
                 switch (pdu_received_alive[0])
                 {
                 case ALIVE_ACK:
@@ -543,17 +553,7 @@ void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in
     status = DISCONNECTED;
     connection_phase(status, user_cfg);
 }
-struct pdu_udp unpack_pdu(char pdu_package[])
-{
-    struct pdu_udp pdu;
-    memset(&pdu, 0, sizeof(pdu)); // To ensure pdu structure is all initialized with zero
-    pdu.pdu_type = pdu_package[0];
-    strcpy((char *)pdu.system_id, extractElements(pdu_package, 1, 6));
-    strcpy((char *)pdu.mac_address, extractElements(pdu_package, 1 + 7, 12));
-    strcpy((char *)pdu.random_number, extractElements(pdu_package, 1 + 7 + 13, 6));
-    strcpy((char *)pdu.data, extractElements(pdu_package, 1 + 7 + 13 + 7, 49));
-    return pdu;
-}
+
 char *extractElements(char *src, int start, int numElements)
 {
     char *dest = malloc(numElements + 1); // +1 for the null terminator
@@ -565,14 +565,7 @@ char *extractElements(char *src, int start, int numElements)
     dest[numElements] = '\0'; // add the null terminator
     return dest;
 }
-int check_equal_pdu(struct pdu_udp pdu1, struct pdu_udp pdu2)
-{
-    int equal = 0;
-    equal = strcmp(pdu1.system_id, pdu2.system_id);
-    equal = strcmp(pdu1.mac_address, pdu2.mac_address);
-    equal = strcmp(pdu1.random_number, pdu2.random_number);
-    return equal;
-}
+
 int known_command(char command[])
 {
     return strcmp((const char *)command, "send-cfg") == 0 || strcmp((const char *)command, "get-cfg") == 0 || strcmp((const char *)command, "quit") == 0;
@@ -581,7 +574,7 @@ int known_command(char command[])
 //
 // COMMAND EXECUTION PHASE
 //
-void command_phase(struct cfg user_config, char *command, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address)
+void command_phase(struct cfg user_config, char *command, struct pdu received_reg_pdu, struct sockaddr_in server_address)
 {
     if (strcmp((const char *)command, "send-cfg") == 0) // strcmp returns 0 if both strings are equal
     {
@@ -596,7 +589,7 @@ void command_phase(struct cfg user_config, char *command, struct pdu_udp receive
     }
 }
 
-void send_cfg(struct cfg user_config, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address)
+void send_cfg(struct cfg user_config, struct pdu received_reg_pdu, struct sockaddr_in server_address)
 {
     int sockfd;
 
@@ -609,13 +602,10 @@ void send_cfg(struct cfg user_config, struct pdu_udp received_reg_pdu, struct so
     }
     else
         printf("Socket successfully created..\n");
-    // bzero(&servaddr, sizeof(servaddr));
 
-    // Assign the port received from the REGISTER_ACK to the sockaddr_in for tcp file sharing
-    server_address.sin_port = htons(atoi(received_reg_pdu.data));
+    server_address.sin_port = htons(atoi(received_reg_pdu.data)); // Assign the port received from the REGISTER_ACK to the sockaddr_in for tcp file sharing
 
-    // connect the client socket to server socket
-    if (connect(sockfd, (struct sockaddr *)&server_address, sizeof(server_address)) != 0)
+    if (connect(sockfd, (struct sockaddr *)&server_address, sizeof(server_address)) != 0) // connect the client socket to server socket
     {
         perror("connect() failed:");
         exit(-1);
@@ -626,16 +616,10 @@ void send_cfg(struct cfg user_config, struct pdu_udp received_reg_pdu, struct so
         printf("Error: Could not open file.\n");
     }
     char data[150];
+    unsigned char pdu_package[TCP_PKG_SIZE];
     snprintf(data, sizeof(data), "%s,%ld", "boot.cfg", file_size);
-    struct pdu_udp try_send_file_pdu = generate_pdu(user_config, SEND_FILE, received_reg_pdu.random_number, data);
-    /* unsigned char pdu_package[178] = {"\n"}, pdu_received_package[178];
-    pdu_package[0] = SEND_FILE;
-    strcpy((char *)&pdu_package[1], (const char *)try_send_file_pdu.system_id);
-    strcpy((char *)&pdu_package[1 + 7], (const char *)try_send_file_pdu.mac_address);
-    strcpy((char *)&pdu_package[1 + 7 + 13], (const char *)try_send_file_pdu.random_number);
-    strcpy((char *)&pdu_package[1 + 7 + 13 + 7], (const char *)try_send_file_pdu.data); */
-    unsigned char pdu_package[178];
-    generate_pdu_array(try_send_file_pdu, pdu_package, 178);
+    struct pdu try_send_file_pdu = generate_pdu(user_config, SEND_FILE, received_reg_pdu.random_number, data);
+    generate_pdu_array(try_send_file_pdu, pdu_package, TCP_PKG_SIZE);
     fd_set read_fds;
     FD_ZERO(&read_fds);        // clears the file descriptor set read_fds and initializes it to the empty set.
     FD_SET(sockfd, &read_fds); // Adds the sockfd file descriptor to the read_fds set
@@ -661,7 +645,7 @@ void send_cfg(struct cfg user_config, struct pdu_udp received_reg_pdu, struct so
             exit(-1);
         }
         pdu_package[has_received_pkg] = '\0';
-        struct pdu_udp serv_response = unpack_pdu((char *)pdu_package);
+        struct pdu serv_response = unpack_pdu((char *)pdu_package);
         if (serv_response.pdu_type == SEND_ACK)
         {
             printf("ENVIAREMOS ARCHIVOOO\n");
