@@ -55,14 +55,7 @@ enum pdu_send_cfg
     SEND_ACK = 0x24,
     SEND_NACK = 0x26,
     SEND_REJ = 0x28,
-    SEND_END = 0x2A
-};
-enum pdu_get_cfg
-{
-    GET_FILE = 0x30,
-    GET_DATA = 0x32,
-    GET_ACK = 0x34,
-    GET_NACK = 0x36,
+    SEND_END = 0x2A,
     GET_REJ = 0x38,
     GET_END = 0x3A
 };
@@ -82,7 +75,7 @@ struct pdu
     char data[50];
 };
 // DECLARATION
-struct cfg get_cfg(int argc, char *argv[]);
+struct cfg get_cfg(char *file_name);
 char *get_file_name(int argc, char *argv[]);
 char *get_line(char line[], FILE *file);
 void show_status(char text[], int status);
@@ -99,12 +92,15 @@ int known_command(char command[]);
 void command_phase(struct cfg user_config, char *command, struct pdu received_reg_pdu, struct sockaddr_in server_address);
 void send_cfg(struct cfg user_config, struct pdu received_reg_pdu, struct sockaddr_in server_address);
 long int get_file_size(const char *filename);
+char *search_arg(int argc, char *argv[], char *option, char *name);
 
 int main(int argc, char *argv[])
 {
     int status = DISCONNECTED;
-    // int debug = check_debug_mode(argc, argv);
-    struct cfg user_cfg = get_cfg(argc, argv);
+    int debug = atoi(search_arg(argc, argv, "-d", "0"));
+    char *boot_name = search_arg(argc, argv, "-f", "boot.cfg");
+    char *file_name = search_arg(argc, argv, "-c", "client.cfg");
+    struct cfg user_cfg = get_cfg(file_name);
     show_status("MSG.  =>  Equip passa a l'estat:", status);
     connection_phase(status, user_cfg);
 }
@@ -123,10 +119,8 @@ void show_status(char text[], int status)
 {
     time_t current_time;
     struct tm *time_info;
-
     time(&current_time);
     time_info = localtime(&current_time);
-
     printf("%02d:%02d:%02d %s", time_info->tm_hour, time_info->tm_min, time_info->tm_sec, text);
     switch (status)
     {
@@ -182,12 +176,11 @@ char *commands(int command)
     }
     return "";
 }
-struct cfg get_cfg(int argc, char *argv[])
+struct cfg get_cfg(char *file_name)
 {
     struct cfg user_cfg;
     char line[MAX_LEN];
     char *parsed_line;
-    char *file_name = get_file_name(argc, argv);
     FILE *file = fopen(file_name, "r");
     if (!file)
     {
@@ -239,16 +232,23 @@ char *get_line(char line[], FILE *file)
     exit(1);
 }
 
-char *get_file_name(int argc, char *argv[])
+char *search_arg(int argc, char *argv[], char *option, char *name)
 {
     for (int i = 0; i < argc; i++)
     {
-        if ((strcmp("-c", argv[i]) == 0))
+        if ((strcmp(option, argv[i]) == 0))
         {
-            return argv[i + 1];
+            if (argv[i + 1] != NULL)
+            {
+                return argv[i + 1];
+            }
+            else
+            {
+                return "1";
+            }
         }
     }
-    return "client.cfg";
+    return name;
 }
 //
 // ESTABLISH CONNECTION WITH THE SERVER AND REGISTER PHASE
@@ -648,7 +648,7 @@ void send_cfg(struct cfg user_config, struct pdu received_reg_pdu, struct sockad
         struct pdu serv_response = unpack_pdu((char *)pdu_package);
         if (serv_response.pdu_type == SEND_ACK)
         {
-            printf("ENVIAREMOS ARCHIVOOO\n");
+            printf("send file\n");
         }
 
         close(sockfd);
