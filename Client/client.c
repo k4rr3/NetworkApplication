@@ -20,6 +20,8 @@
 
 #define R 2
 #define S 3
+
+#define W 3
 // STATUS AND PDU ENUMS
 enum status
 {
@@ -88,7 +90,7 @@ void copyElements(char *src, char *dest, int start, int numElements);
 void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in server_address, struct pdu_udp received_reg_pdu);
 struct pdu_udp unpack_pdu(char pdu_package[]);
 char *extractElements(char *src, int start, int numElements);
-int check_subscription(struct pdu_udp pdu1, struct pdu_udp pdu2);
+int check_equal_pdu(struct pdu_udp pdu1, struct pdu_udp pdu2);
 char *commands(int command);
 int known_command(char command[]);
 void command_phase(struct cfg user_config, char *command, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address);
@@ -422,6 +424,16 @@ struct pdu_udp generate_pdu(struct cfg user_cfg, int pdu_type, char random_numbe
     strcpy((char *)pdu.data, (const char *)data);
     return pdu;
 }
+/* unsigned char generate_pdu_array(struct pdu_udp pdu, int tipus)
+{
+    unsigned char pdu_package[78] = {"\n"};
+    pdu_package[0] = (unsigned char)commands(pdu.pdu_type);
+    strcpy((char *)&pdu_package[1], (const char *)pdu.system_id);
+    strcpy((char *)&pdu_package[1 + 7], (const char *)pdu.mac_address);
+    strcpy((char *)&pdu_package[1 + 7 + 13], (const char *)pdu.random_number);
+    strcpy((char *)&pdu_package[1 + 7 + 13 + 7], (const char *)pdu.data);
+    return pdu_package;
+} */
 void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in server_address, struct pdu_udp received_reg_pdu)
 {
     show_status("DEBUG =>  Creat procés per gestionar alives\n", -1);
@@ -444,7 +456,7 @@ void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in
         FD_ZERO(&read_fds);   // clears the file descriptor set read_fds and initializes it to the empty set.
         FD_SET(0, &read_fds); // Adds the stdin file descriptor to the read_fds set
 
-        int select_status = select(FD_SETSIZE, &read_fds, NULL, NULL, &timeout); // sockfd+1 to ensure that all file descriptors in the range [0, sockfd] are examined.
+        int select_status = select(FD_SETSIZE, &read_fds, NULL, NULL, &timeout); // FD_SETSIZE to ensure that all file descriptors are examined.
         if (select_status == -1)
         {
             perror("select() failed");
@@ -495,7 +507,7 @@ void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in
                         status = SEND_ALIVE;
                         show_status("MSG.  =>  Equip passa a l'estat:", status);
 
-                        if (check_subscription(received_alive_pdu, received_reg_pdu) == 0)
+                        if (check_equal_pdu(received_alive_pdu, received_reg_pdu) == 0)
                         {
                             show_status("INFO  =>  Acceptada subscripció amb servidor: ", -1);
                             printf("%s\n \t(id: %s, mac: %s, alea:%s, port tcp: %s)\n", user_cfg.nms_id, received_alive_pdu.system_id, received_alive_pdu.mac_address, received_alive_pdu.random_number, user_cfg.nms_udp_port);
@@ -551,7 +563,7 @@ char *extractElements(char *src, int start, int numElements)
     dest[numElements] = '\0'; // add the null terminator
     return dest;
 }
-int check_subscription(struct pdu_udp pdu1, struct pdu_udp pdu2)
+int check_equal_pdu(struct pdu_udp pdu1, struct pdu_udp pdu2)
 {
     int equal = 0;
     equal = strcmp(pdu1.system_id, pdu2.system_id);
@@ -614,15 +626,48 @@ void send_cfg(struct cfg user_config, struct pdu_udp received_reg_pdu, struct so
     char data[150];
     snprintf(data, sizeof(data), "%s,%ld", "boot.cfg", file_size);
     struct pdu_udp try_send_file_pdu = generate_pdu(user_config, SEND_FILE, received_reg_pdu.random_number, data);
-    unsigned char pdu_package[178] = {"\n"};
+    unsigned char pdu_package[178] = {"\n"}, pdu_received_package[178];
     pdu_package[0] = SEND_FILE;
     strcpy((char *)&pdu_package[1], (const char *)try_send_file_pdu.system_id);
     strcpy((char *)&pdu_package[1 + 7], (const char *)try_send_file_pdu.mac_address);
     strcpy((char *)&pdu_package[1 + 7 + 13], (const char *)try_send_file_pdu.random_number);
     strcpy((char *)&pdu_package[1 + 7 + 13 + 7], (const char *)try_send_file_pdu.data);
+
+    fd_set read_fds;
+    FD_ZERO(&read_fds);        // clears the file descriptor set read_fds and initializes it to the empty set.
+    FD_SET(sockfd, &read_fds); // Adds the sockfd file descriptor to the read_fds set
+    struct timeval timeout = {W, 0};
+    printf("apaga el server\n");
+    sleep(4);
     send(sockfd, pdu_package, sizeof(pdu_package), 0);
-    // close the socket
-    close(sockfd);
+    int select_status = select(sockfd + 1, &read_fds, NULL, NULL, &timeout);
+    if (select_status == -1)
+    {
+        perror("select() failed");
+        exit(-1);
+    }
+    else if (select_status == 0) // Timeout occurred, we consider the communication with the server isn't working properly
+    {
+        printf("TIMEOUT OCCURRED\n");
+        close(sockfd);
+    }
+    else
+    {
+        int has_received_pkg = recv(sockfd, pdu_package, sizeof(pdu_package), 0);
+        if (has_received_pkg < 0)
+        {
+            perror("recvfrom() failed");
+            exit(-1);
+        }
+        pdu_package[has_received_pkg] = '\0';
+        struct pdu_udp serv_response = unpack_pdu((char*) pdu_package);
+        if (serv_response.pdu_type == SEND_ACK)
+        {
+            printf("ENVIAREMOS ARCHIVOOO\n");
+        }
+        
+        close(sockfd);
+    }
 }
 long int get_file_size(const char *filename)
 {
