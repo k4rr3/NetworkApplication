@@ -76,7 +76,6 @@ struct pdu
 };
 // DECLARATION
 struct cfg get_cfg(char *file_name);
-char *get_file_name(int argc, char *argv[]);
 char *get_line(char line[], FILE *file);
 void show_status(char text[], int status);
 void connection_phase(int status, struct cfg user_cfg);
@@ -104,17 +103,7 @@ int main(int argc, char *argv[])
     show_status("MSG.  =>  Equip passa a l'estat:", status);
     connection_phase(status, user_cfg);
 }
-int check_debug_mode(int argc, char *argv[])
-{
-    for (int i = 0; i < argc; i++)
-    {
-        if ((strcmp("-d", argv[i]) == 0))
-        {
-            return 1;
-        }
-    }
-    return 0;
-}
+
 void show_status(char text[], int status)
 {
     time_t current_time;
