@@ -424,16 +424,15 @@ struct pdu_udp generate_pdu(struct cfg user_cfg, int pdu_type, char random_numbe
     strcpy((char *)pdu.data, (const char *)data);
     return pdu;
 }
-/* unsigned char generate_pdu_array(struct pdu_udp pdu, int tipus)
+void generate_pdu_array(struct pdu_udp pdu, unsigned char pdu_package[], int array_size)
 {
-    unsigned char pdu_package[78] = {"\n"};
-    pdu_package[0] = (unsigned char)commands(pdu.pdu_type);
+    pdu_package[0] = pdu.pdu_type;
     strcpy((char *)&pdu_package[1], (const char *)pdu.system_id);
     strcpy((char *)&pdu_package[1 + 7], (const char *)pdu.mac_address);
     strcpy((char *)&pdu_package[1 + 7 + 13], (const char *)pdu.random_number);
     strcpy((char *)&pdu_package[1 + 7 + 13 + 7], (const char *)pdu.data);
-    return pdu_package;
-} */
+}
+
 void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in server_address, struct pdu_udp received_reg_pdu)
 {
     show_status("DEBUG =>  Creat procés per gestionar alives\n", -1);
@@ -442,12 +441,15 @@ void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in
     struct timeval timeout = {R, 0};
     // Create PDU ALIVE_INF package
     struct pdu_udp pdu_alive_inf = generate_pdu(user_cfg, ALIVE_INF, received_reg_pdu.random_number, "");
-    unsigned char pdu_package[78] = {"\n"};
+    /* unsigned char pdu_package[78] = {"\n"};
     pdu_package[0] = ALIVE_INF;
     strcpy((char *)&pdu_package[1], (const char *)pdu_alive_inf.system_id);
     strcpy((char *)&pdu_package[1 + 7], (const char *)pdu_alive_inf.mac_address);
     strcpy((char *)&pdu_package[1 + 7 + 13], (const char *)pdu_alive_inf.random_number);
-    strcpy((char *)&pdu_package[1 + 7 + 13 + 7], (const char *)pdu_alive_inf.data);
+    strcpy((char *)&pdu_package[1 + 7 + 13 + 7], (const char *)pdu_alive_inf.data); */
+    unsigned char pdu_package[78];
+    generate_pdu_array(pdu_alive_inf, pdu_package, 78);
+
     int non_confirmated_alives = 0;
 
     while (status != DISCONNECTED && non_confirmated_alives < S)
@@ -626,19 +628,18 @@ void send_cfg(struct cfg user_config, struct pdu_udp received_reg_pdu, struct so
     char data[150];
     snprintf(data, sizeof(data), "%s,%ld", "boot.cfg", file_size);
     struct pdu_udp try_send_file_pdu = generate_pdu(user_config, SEND_FILE, received_reg_pdu.random_number, data);
-    unsigned char pdu_package[178] = {"\n"}, pdu_received_package[178];
+    /* unsigned char pdu_package[178] = {"\n"}, pdu_received_package[178];
     pdu_package[0] = SEND_FILE;
     strcpy((char *)&pdu_package[1], (const char *)try_send_file_pdu.system_id);
     strcpy((char *)&pdu_package[1 + 7], (const char *)try_send_file_pdu.mac_address);
     strcpy((char *)&pdu_package[1 + 7 + 13], (const char *)try_send_file_pdu.random_number);
-    strcpy((char *)&pdu_package[1 + 7 + 13 + 7], (const char *)try_send_file_pdu.data);
-
+    strcpy((char *)&pdu_package[1 + 7 + 13 + 7], (const char *)try_send_file_pdu.data); */
+    unsigned char pdu_package[178];
+    generate_pdu_array(try_send_file_pdu, pdu_package, 178);
     fd_set read_fds;
     FD_ZERO(&read_fds);        // clears the file descriptor set read_fds and initializes it to the empty set.
     FD_SET(sockfd, &read_fds); // Adds the sockfd file descriptor to the read_fds set
     struct timeval timeout = {W, 0};
-    printf("apaga el server\n");
-    sleep(4);
     send(sockfd, pdu_package, sizeof(pdu_package), 0);
     int select_status = select(sockfd + 1, &read_fds, NULL, NULL, &timeout);
     if (select_status == -1)
@@ -660,12 +661,12 @@ void send_cfg(struct cfg user_config, struct pdu_udp received_reg_pdu, struct so
             exit(-1);
         }
         pdu_package[has_received_pkg] = '\0';
-        struct pdu_udp serv_response = unpack_pdu((char*) pdu_package);
+        struct pdu_udp serv_response = unpack_pdu((char *)pdu_package);
         if (serv_response.pdu_type == SEND_ACK)
         {
             printf("ENVIAREMOS ARCHIVOOO\n");
         }
-        
+
         close(sockfd);
     }
 }
