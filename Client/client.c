@@ -566,7 +566,7 @@ void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in
             {
                 struct pdu_udp received_alive_pdu = unpack_pdu_udp((char *)pdu_received_alive);
                 show_status(" DEBUG =>  Rebut: ", -1);
-                printf("bytes=%d, comanda=%s, id=%s, mac=%s, alea=%s  dades=%s\n", UDP_PKG_SIZE, commands(received_alive_pdu.pdu_type), pdu_alive_inf.system_id, pdu_alive_inf.mac_address, pdu_alive_inf.random_number, pdu_alive_inf.data);
+                printf("bytes=%d, comanda=%s, id=%s, mac=%s, alea=%s  dades=%s\n\n", UDP_PKG_SIZE, commands(received_alive_pdu.pdu_type), pdu_alive_inf.system_id, pdu_alive_inf.mac_address, pdu_alive_inf.random_number, pdu_alive_inf.data);
                 switch (pdu_received_alive[0])
                 {
                 case ALIVE_ACK:
@@ -740,21 +740,20 @@ void send_file_by_lines(int sockfd, struct cfg user_config, struct pdu_udp recei
 
     while (fgets(line, 150, fp) != NULL)
     {
-        // Remove the newline character from the end of the line
-        line[strcspn(line, "\n")] = '\0';
+        line[strcspn(line, "\n")] = '\0'; // Remove the newline character from the end of the line
         pdu_line = generate_pdu_tcp(user_config, SEND_DATA, received_reg_pdu.random_number, line);
         generate_pdu_tcp_array(pdu_line, (unsigned char *)pdu_package, TCP_PKG_SIZE);
         send(sockfd, pdu_package, sizeof(pdu_package), 0);
         show_status(" DEBUG =>  Enviat: ", -1);
-        printf("bytes=%d, comanda=%s id=%s, mac=%s, alea=%s  dades=%s\n", TCP_PKG_SIZE, commands(pdu_line.pdu_type), pdu_line.system_id, pdu_line.mac_address, pdu_line.random_number, pdu_line.data);
+        printf("bytes=%d, comanda=%s id=%s, mac=%s, alea=%s  dades=%s\n\n", TCP_PKG_SIZE, commands(pdu_line.pdu_type), pdu_line.system_id, pdu_line.mac_address, pdu_line.random_number, pdu_line.data);
     }
     pdu_line = generate_pdu_tcp(user_config, SEND_END, received_reg_pdu.random_number, "");
-    generate_pdu_tcp_array(pdu_line,(unsigned char*) pdu_package, TCP_PKG_SIZE);
+    generate_pdu_tcp_array(pdu_line, (unsigned char *)pdu_package, TCP_PKG_SIZE);
     send(sockfd, pdu_package, sizeof(pdu_package), 0);
     show_status(" DEBUG =>  Enviat: ", -1);
-    printf("bytes=%d, comanda=%s id=%s, mac=%s, alea=%s  dades=%s\n", TCP_PKG_SIZE, commands(pdu_line.pdu_type), pdu_line.system_id, pdu_line.mac_address, pdu_line.random_number, pdu_line.data);
+    printf("bytes=%d, comanda=%s id=%s, mac=%s, alea=%s  dades=%s\n\n", TCP_PKG_SIZE, commands(pdu_line.pdu_type), pdu_line.system_id, pdu_line.mac_address, pdu_line.random_number, pdu_line.data);
 
     close(sockfd);
-    // Close the file
+    // Close the file send-cfg
     fclose(fp);
 }
