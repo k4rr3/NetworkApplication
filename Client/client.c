@@ -630,7 +630,6 @@ char *extractElements(char *src, int start, int numElements)
     dest[numElements] = '\0'; // add the null terminator
     return dest;
 }
-
 int known_command(char command[])
 {
     return strcmp((const char *)command, "send-cfg") == 0 || strcmp((const char *)command, "get-cfg") == 0 || strcmp((const char *)command, "quit") == 0;
@@ -750,7 +749,7 @@ void send_file_by_lines(int sockfd, struct cfg user_config, struct pdu_udp recei
 
     while (fgets(line, 150, fp) != NULL)
     {
-        //line[strcspn(line, "\n")] = '\0'; // Remove the newline character from the end of the line
+        // line[strcspn(line, "\n")] = '\0'; // Remove the newline character from the end of the line
         pdu_line = generate_pdu_tcp(user_config, SEND_DATA, received_reg_pdu.random_number, line);
         generate_pdu_tcp_array(pdu_line, (unsigned char *)pdu_package, TCP_PKG_SIZE);
         send(sockfd, pdu_package, sizeof(pdu_package), 0);
@@ -846,20 +845,38 @@ void get_file_by_lines(int sockfd, struct cfg user_config, struct pdu_udp receiv
     char pdu_package[TCP_PKG_SIZE];
     int has_received_pkg;
     struct pdu_tcp pdu_line;
+    struct timeval timeout = {W, 0};
+    fd_set read_fds;
+    FD_ZERO(&read_fds);
+    FD_SET(sockfd, &read_fds);
     while (pdu_line.pdu_type != GET_END)
     {
-        has_received_pkg = recv(sockfd, pdu_package, sizeof(pdu_package), 0);
-        pdu_line = unpack_pdu_tcp((char *)pdu_package);
-        show_status(" DEBUG =>  Rebut: ", -1);
-        printf("bytes=%d, comanda=%s id=%s, mac=%s, alea=%s  dades=%s\n\n", TCP_PKG_SIZE, commands(pdu_line.pdu_type), pdu_line.system_id, pdu_line.mac_address, pdu_line.random_number, pdu_line.data);
-
-        if (has_received_pkg < 0)
+        int ready = select(sockfd + 1, &read_fds, NULL, NULL, &timeout);
+        if (ready < 0)
         {
-            perror("recvfrom() failed");
+            perror("select() failed");
             exit(-1);
         }
+        else if (ready == 0)
+        {
+            close(sockfd);
+            printf("Timeout: server didn't answer within 3 seconds\n");
+        }
+        else
+        {
+            has_received_pkg = recv(sockfd, pdu_package, sizeof(pdu_package), 0);
+            pdu_line = unpack_pdu_tcp((char *)pdu_package);
+            show_status(" DEBUG =>  Rebut: ", -1);
+            printf("bytes=%d, comanda=%s id=%s, mac=%s, alea=%s  dades=%s\n\n", TCP_PKG_SIZE, commands(pdu_line.pdu_type), pdu_line.system_id, pdu_line.mac_address, pdu_line.random_number, pdu_line.data);
 
-        fprintf(fp, "%s", pdu_line.data);
+            if (has_received_pkg < 0)
+            {
+                perror("recvfrom() failed");
+                exit(-1);
+            }
+
+            fprintf(fp, "%s", pdu_line.data);
+        }
     }
 
     close(sockfd);
