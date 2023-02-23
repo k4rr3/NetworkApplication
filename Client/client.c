@@ -111,10 +111,9 @@ void send_file_by_lines(int sockfd, struct cfg user_config, struct pdu_udp recei
 struct pdu_tcp generate_pdu_tcp(struct cfg user_cfg, int pdu_type, char random_number[], char data[]);
 void get_cfg(struct cfg user_config, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address, char *boot_name);
 void get_file_by_lines(int sockfd, struct cfg user_config, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address, char *boot_name);
-
 void generate_pdu_tcp_array(struct pdu_tcp pdu, unsigned char pdu_package[], int array_size);
-
 struct pdu_tcp unpack_pdu_tcp(char pdu_package[]);
+
 int main(int argc, char *argv[])
 {
     int status = DISCONNECTED;
@@ -337,8 +336,11 @@ void connection_phase(int status, struct cfg user_cfg, int debug, char *boot_nam
     int interval = T;
     int packets_sent = 0;
     int process_made = 1;
-    show_status("DEBUG =>  Registre equip, intent:  ", -1);
-    printf("%d\n", process_made);
+    if (debug == 1)
+    {
+        show_status("DEBUG =>  Registre equip, intent:  ", -1);
+        printf("%d\n", process_made);
+    }
 
     // Set the status to WAIT_REG_RESPONSE
     status = WAIT_REG_RESPONSE;
@@ -381,8 +383,12 @@ void connection_phase(int status, struct cfg user_cfg, int debug, char *boot_nam
                 if (process_made <= O)
                 {
                     sleep(U); // wait U seconds and restart a new registration process
-                    show_status("DEBUG =>  Registre equip, intent: ", -1);
-                    printf("%d\n", process_made);
+                    if (debug == 1)
+                    {
+                        show_status("DEBUG =>  Registre equip, intent: ", -1);
+                        printf("%d\n", process_made);
+                    }
+
                     // Restart the registration process
                     packets_sent = 0;
                     interval = T;
@@ -417,8 +423,12 @@ void connection_phase(int status, struct cfg user_cfg, int debug, char *boot_nam
                 if (process_made <= O)
                 {
                     sleep(U); // wait U seconds and restart a new registration process
-                    show_status("DEBUG =>  Registre equip, intent: ", -1);
-                    printf("%d\n", process_made);
+                    if (debug == 1)
+                    {
+                        show_status("DEBUG =>  Registre equip, intent: ", -1);
+                        printf("%d\n", process_made);
+                    }
+
                     // Restart the registration process
                     packets_sent = 0;
                     interval = T;
