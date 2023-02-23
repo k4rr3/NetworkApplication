@@ -93,24 +93,24 @@ struct pdu_tcp
 struct cfg get_client_cfg(char *file_name);
 char *get_line(char line[], FILE *file);
 void show_status(char text[], int status);
-void connection_phase(int status, struct cfg user_cfg, int debug);
+void connection_phase(int status, struct cfg user_cfg, int debug, char *boot_name);
 struct pdu_udp generate_pdu_udp(struct cfg user_cfg, int pdu_type, char random_number[], char data[]);
 void generate_pdu_udp_array(struct pdu_udp pdu, unsigned char pdu_package[], int array_size);
 void copyElements(char *src, char *dest, int start, int numElements);
-void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in server_address, struct pdu_udp received_reg_pdu, int debug);
+void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in server_address, struct pdu_udp received_reg_pdu, int debug, char *boot_name);
 struct pdu_udp unpack_pdu_udp(char pdu_package[]);
 char *extractElements(char *src, int start, int numElements);
 int check_equal_pdu(struct pdu_udp pdu1, struct pdu_udp pdu2);
 char *commands(int command);
 int known_command(char command[]);
-void command_phase(struct cfg user_config, char *command, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address);
-void send_cfg(struct cfg user_config, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address);
+void command_phase(struct cfg user_config, char *command, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address, char *boot_name);
+void send_cfg(struct cfg user_config, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address, char *boot_name);
 long int get_file_size(const char *filename);
 char *search_arg(int argc, char *argv[], char *option, char *name);
-void send_file_by_lines(int sockfd, struct cfg user_config, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address);
+void send_file_by_lines(int sockfd, struct cfg user_config, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address, char *boot_name);
 struct pdu_tcp generate_pdu_tcp(struct cfg user_cfg, int pdu_type, char random_number[], char data[]);
-void get_cfg(struct cfg user_config, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address);
-void get_file_by_lines(int sockfd, struct cfg user_config, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address);
+void get_cfg(struct cfg user_config, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address, char *boot_name);
+void get_file_by_lines(int sockfd, struct cfg user_config, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address, char *boot_name);
 
 void generate_pdu_tcp_array(struct pdu_tcp pdu, unsigned char pdu_package[], int array_size);
 
@@ -123,7 +123,7 @@ int main(int argc, char *argv[])
     char *file_name = search_arg(argc, argv, "-c", "client.cfg");
     struct cfg user_cfg = get_client_cfg(file_name);
     show_status("MSG.  =>  Equip passa a l'estat:", status);
-    connection_phase(status, user_cfg, debug);
+    connection_phase(status, user_cfg, debug, boot_name);
 }
 
 void show_status(char text[], int status)
@@ -288,7 +288,7 @@ char *search_arg(int argc, char *argv[], char *option, char *name)
 //
 // ESTABLISH CONNECTION WITH THE SERVER AND REGISTER PHASE
 //
-void connection_phase(int status, struct cfg user_cfg, int debug)
+void connection_phase(int status, struct cfg user_cfg, int debug, char *boot_name)
 {
     int sockfd;
     struct sockaddr_in client_address, server_address;
@@ -409,7 +409,7 @@ void connection_phase(int status, struct cfg user_cfg, int debug)
             case REGISTER_ACK: // 0x02
                 status = REGISTERED;
                 struct pdu_udp received_reg_pdu = unpack_pdu_udp((char *)pdu_package);
-                alive_phase(sockfd, status, user_cfg, server_address, received_reg_pdu, debug);
+                alive_phase(sockfd, status, user_cfg, server_address, received_reg_pdu, debug, boot_name);
                 break;
             case REGISTER_NACK: // 0x04
                 process_made += 1;
@@ -514,7 +514,7 @@ int check_equal_pdu(struct pdu_udp pdu1, struct pdu_udp pdu2)
     equal = strcmp(pdu1.random_number, pdu2.random_number);
     return equal;
 }
-void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in server_address, struct pdu_udp received_reg_pdu, int debug)
+void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in server_address, struct pdu_udp received_reg_pdu, int debug, char *boot_name)
 {
     show_status("DEBUG =>  Creat procés per gestionar alives\n", -1);
     show_status("DEBUG =>  Establert temporitzador per enviament alives\n", -1);
@@ -546,7 +546,7 @@ void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in
             command[strcspn(command, "\n")] = 0; // Deleting the \n that fgets function sets by default at the end of the array where input was written
             if (known_command(command))
             {
-                command_phase(user_cfg, command, received_reg_pdu, server_address); // tcp_phase
+                command_phase(user_cfg, command, received_reg_pdu, server_address, boot_name); // tcp_phase
             }
             else
             {
@@ -601,7 +601,7 @@ void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in
                     {
                         printf("ALIVE_REJ\n");
                         status = DISCONNECTED;
-                        connection_phase(status, user_cfg, debug);
+                        connection_phase(status, user_cfg, debug, boot_name);
                     }
 
                 case ALIVE_NACK:
@@ -616,7 +616,7 @@ void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in
         sleep(R - (current_time - last_sent_pkg_time)); // Calculate if select() already executed the Rs timeout
     }
     status = DISCONNECTED;
-    connection_phase(status, user_cfg, debug);
+    connection_phase(status, user_cfg, debug, boot_name);
 }
 
 char *extractElements(char *src, int start, int numElements)
@@ -638,15 +638,15 @@ int known_command(char command[])
 //
 // COMMAND EXECUTION PHASE
 //
-void command_phase(struct cfg user_config, char *command, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address)
+void command_phase(struct cfg user_config, char *command, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address, char *boot_name)
 {
     if (strcmp((const char *)command, "send-cfg") == 0) // strcmp returns 0 if both strings are equal
     {
-        send_cfg(user_config, received_reg_pdu, server_address);
+        send_cfg(user_config, received_reg_pdu, server_address, boot_name);
     }
     else if (strcmp((const char *)command, "get-cfg") == 0)
     {
-        get_cfg(user_config, received_reg_pdu, server_address);
+        get_cfg(user_config, received_reg_pdu, server_address, boot_name);
     }
     else
     {
@@ -654,7 +654,7 @@ void command_phase(struct cfg user_config, char *command, struct pdu_udp receive
     }
 }
 
-void send_cfg(struct cfg user_config, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address)
+void send_cfg(struct cfg user_config, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address, char *boot_name)
 {
     int sockfd;
 
@@ -675,7 +675,7 @@ void send_cfg(struct cfg user_config, struct pdu_udp received_reg_pdu, struct so
         perror("connect() failed:");
         exit(-1);
     }
-    long int file_size = get_file_size("boot.cfg");
+    long int file_size = get_file_size(boot_name);
     if (file_size == -1)
     {
         printf("Error: Could not open file.\n");
@@ -714,7 +714,7 @@ void send_cfg(struct cfg user_config, struct pdu_udp received_reg_pdu, struct so
         if (serv_response.pdu_type == SEND_ACK)
         {
             printf("send file\n");
-            send_file_by_lines(sockfd, user_config, received_reg_pdu, server_address);
+            send_file_by_lines(sockfd, user_config, received_reg_pdu, server_address, boot_name);
         }
 
         close(sockfd);
@@ -732,12 +732,12 @@ long int get_file_size(const char *filename)
     fclose(file);
     return size;
 }
-void send_file_by_lines(int sockfd, struct cfg user_config, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address)
+void send_file_by_lines(int sockfd, struct cfg user_config, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address, char *boot_name)
 {
     FILE *fp;
     char line[150];
 
-    fp = fopen("boot.cfg", "r");
+    fp = fopen(boot_name, "r");
     if (fp == NULL)
     {
         perror("Error opening file");
@@ -766,7 +766,7 @@ void send_file_by_lines(int sockfd, struct cfg user_config, struct pdu_udp recei
     // Close the file send-cfg
     fclose(fp);
 }
-void get_cfg(struct cfg user_config, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address)
+void get_cfg(struct cfg user_config, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address, char *boot_name)
 {
     int sockfd;
 
@@ -787,14 +787,14 @@ void get_cfg(struct cfg user_config, struct pdu_udp received_reg_pdu, struct soc
         perror("connect() failed:");
         exit(-1);
     }
-    long int file_size = get_file_size("boot.cfg");
+    long int file_size = get_file_size(boot_name);
     if (file_size == -1)
     {
         printf("Error: Could not open file.\n");
     }
     char data[150];
     unsigned char pdu_package[TCP_PKG_SIZE];
-    snprintf(data, sizeof(data), "%s,%ld", "boot.cfg", file_size);
+    snprintf(data, sizeof(data), "%s,%ld", boot_name, file_size);
     struct pdu_tcp try_send_file_pdu = generate_pdu_tcp(user_config, GET_FILE, received_reg_pdu.random_number, data);
     generate_pdu_tcp_array(try_send_file_pdu, pdu_package, TCP_PKG_SIZE);
     fd_set read_fds;
@@ -826,16 +826,16 @@ void get_cfg(struct cfg user_config, struct pdu_udp received_reg_pdu, struct soc
         if (serv_response.pdu_type == GET_ACK)
         {
             printf("send file\n");
-            get_file_by_lines(sockfd, user_config, received_reg_pdu, server_address);
+            get_file_by_lines(sockfd, user_config, received_reg_pdu, server_address, boot_name);
         }
 
         close(sockfd);
     }
 }
-void get_file_by_lines(int sockfd, struct cfg user_config, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address)
+void get_file_by_lines(int sockfd, struct cfg user_config, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address, char *boot_name)
 {
     FILE *fp;
-    fp = fopen("boot.cfg", "w");
+    fp = fopen(boot_name, "w");
     if (fp == NULL)
     {
         perror("Error opening file");
