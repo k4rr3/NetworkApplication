@@ -2,12 +2,14 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
+#include <time.h>
 #include <sys/types.h>
-#include <sys/socket.h>
 #include <sys/time.h>
+
+#include <sys/socket.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
-#include <time.h>
+#include <netdb.h>
 
 #define MAX_LEN 20
 #define UDP_PKG_SIZE 78
@@ -123,10 +125,10 @@ int main(int argc, char *argv[])
     struct cfg user_cfg = get_client_cfg(file_name);
     if (debug == 1)
     {
-        show_status("DEBUG =>  Llegits paràmetres línia de comandes", -1);
-        show_status("DEBUG =>  Llegits parametres arxius de configuració", -1);
+        show_status("DEBUG =>  Llegits paràmetres línia de comandes\n", -1);
+        show_status("DEBUG =>  Llegits parametres arxius de configuració\n", -1);
         show_status("DEBUG =>  Inici bucle de servei equip : ", -1);
-        printf("%s", user_cfg.id);
+        printf("%s\n", user_cfg.id);
     }
     show_status("MSG.  =>  Equip passa a l'estat:", status);
     connection_phase(status, user_cfg, debug, boot_name);
@@ -298,7 +300,7 @@ void connection_phase(int status, struct cfg user_cfg, int debug, char *boot_nam
 {
     int sockfd;
     struct sockaddr_in client_address, server_address;
-
+    struct hostent *ent;
     // Create a UDP socket, open a communication channel
     sockfd = socket(AF_INET, SOCK_DGRAM, 0);
     if (sockfd < 0)
@@ -319,45 +321,53 @@ void connection_phase(int status, struct cfg user_cfg, int debug, char *boot_nam
         exit(-1);
     }
 
-    // If address from the config file is localhost, then it is resolved as 127.0.0.1 otherwise the ip specified is established
-    char *address;
-    if (strcmp((char *)user_cfg.nms_id, "localhost") == 0)
+    // Set the server port and address to be able to send the packages
+    ent = gethostbyname((char *)user_cfg.nms_id);
+    if (!ent)
     {
-        address = "127.0.0.1";
-    }
-    else
-    {
-        address = (char *)user_cfg.nms_id;
+        printf("Error! No trobat: %s \n", user_cfg.nms_id);
+        exit(-1);
     }
 
-    // Set the server port and address to be able to send the packages
     memset(&server_address, 0, sizeof(server_address));
     server_address.sin_family = AF_INET;
-    server_address.sin_addr.s_addr = inet_addr(address);
+    // memcpy(&server_address.sin_addr, ent->h_addr_list[0], ent->h_length);
+    server_address.sin_addr.s_addr = (((struct in_addr *)ent->h_addr_list[0])->s_addr);
     server_address.sin_port = htons(atoi((const char *)user_cfg.nms_udp_port));
 
     // Create PDU REGISTER_REQ package
     struct pdu_udp pdu_reg_req = generate_pdu_udp(user_cfg, REGISTER_REQ, "000000", "");
     unsigned char pdu_package[UDP_PKG_SIZE];
-    generate_pdu_udp_array(pdu_reg_req, pdu_package, UDP_PKG_SIZE);
+    // generate_pdu_udp_array(pdu_reg_req, pdu_package, UDP_PKG_SIZE);
     int interval = T;
     int packets_sent = 0;
     int process_made = 1;
     status = WAIT_REG_RESPONSE;
-    show_status("MSG.  =>  Client passa a l'estat:", status);
-    if (debug == 1)
-    {
-        show_status("DEBUG =>  Registre equip, intent:  ", -1);
-        printf("%d\n", process_made);
-    }
     while (status != REGISTERED && status != DISCONNECTED && process_made <= O)
     {
+        if (debug == 1)
+        {
+            show_status("DEBUG =>  Registre equip, intent:  ", -1);
+            printf("%d\n", process_made);
+        }
+        generate_pdu_udp_array(pdu_reg_req, pdu_package, UDP_PKG_SIZE);
         // Send register package to the server
         if (sendto(sockfd, pdu_package, UDP_PKG_SIZE, 0, (struct sockaddr *)&server_address, sizeof(server_address)) < 0)
         {
             perror("sendto() failed");
             exit(-1);
         }
+        if (debug == 1)
+        {
+            show_status(" DEBUG =>  Enviat: ", -1);
+            printf("bytes=%d, comanda=%s id=%s, mac=%s, alea=%s  dades=%s\n", UDP_PKG_SIZE, commands(pdu_reg_req.pdu_type), pdu_reg_req.system_id, pdu_reg_req.mac_address, pdu_reg_req.random_number, pdu_reg_req.data);
+        }
+        if (process_made > 1)
+        {
+
+            show_status("MSG.  =>  Client passa a l'estat:", status);
+        }
+
         packets_sent++;
 
         // Wait for a response from the server
@@ -425,7 +435,6 @@ void connection_phase(int status, struct cfg user_cfg, int debug, char *boot_nam
                 alive_phase(sockfd, status, user_cfg, server_address, received_reg_pdu, debug, boot_name);
                 break;
             case REGISTER_NACK: // 0x04
-                process_made += 1;
                 if (process_made <= O)
                 {
                     sleep(U); // wait U seconds and restart a new registration process
@@ -434,10 +443,9 @@ void connection_phase(int status, struct cfg user_cfg, int debug, char *boot_nam
                         struct pdu_udp received_reg_pdu = unpack_pdu_udp((char *)pdu_package);
                         show_status(" DEBUG =>  Rebut: ", -1);
                         printf("bytes=%d, comanda=%s, id=%s, mac=%s, alea=%s  dades=%s\n\n", UDP_PKG_SIZE, commands(received_reg_pdu.pdu_type), received_reg_pdu.system_id, received_reg_pdu.mac_address, received_reg_pdu.random_number, received_reg_pdu.data);
-                        show_status("INFO  =>  Petició de registre errònia, motiu:",-1);
-                        printf("%s\n",received_reg_pdu.data);
+                        show_status("INFO  =>  Petició de registre errònia, motiu:", -1);
+                        printf("%s\n", received_reg_pdu.data);
                         show_status("INFO  =>  Fallida registre amb servidor: localhost\n", -1);
-                        show_status("DEBUG =>  Registre equip, intent: ", -1);
                         printf("%d\n", process_made);
                     }
 
@@ -445,6 +453,7 @@ void connection_phase(int status, struct cfg user_cfg, int debug, char *boot_nam
                     packets_sent = 0;
                     interval = T;
                     status = WAIT_REG_RESPONSE;
+                    process_made += 1;
                 }
                 break;
             case REGISTER_REJ: // 0x06
@@ -455,6 +464,7 @@ void connection_phase(int status, struct cfg user_cfg, int debug, char *boot_nam
 
                 break;
             case ERROR: // 0x0F
+                // process_made += 1;
                 break;
             }
         }
@@ -555,6 +565,19 @@ void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in
 
     while (status != DISCONNECTED && non_confirmated_alives < S)
     {
+        if (sendto(sockfd, pdu_package, UDP_PKG_SIZE, 0, (struct sockaddr *)&server_address, sizeof(server_address)) < 0)
+        {
+            perror("sendto() failed");
+            exit(-1);
+        }
+
+        last_sent_pkg_time = time(NULL);
+        if (debug == 1)
+        {
+            show_status(" DEBUG =>  Enviat: ", -1);
+            printf("bytes=%d, comanda=%s id=%s, mac=%s, alea=%s  dades=%s\n", UDP_PKG_SIZE, commands(pdu_alive_inf.pdu_type), pdu_alive_inf.system_id, pdu_alive_inf.mac_address, pdu_alive_inf.random_number, pdu_alive_inf.data);
+        }
+
         fd_set read_fds;
         FD_ZERO(&read_fds);   // clears the file descriptor set read_fds and initializes it to the empty set.
         FD_SET(0, &read_fds); // Adds the stdin file descriptor to the read_fds set
@@ -581,19 +604,6 @@ void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in
         }
         else //// Timeout occurred
         {
-            if (sendto(sockfd, pdu_package, UDP_PKG_SIZE, 0, (struct sockaddr *)&server_address, sizeof(server_address)) < 0)
-            {
-                perror("sendto() failed");
-                exit(-1);
-            }
-
-            last_sent_pkg_time = time(NULL);
-            if (debug == 1)
-            {
-                show_status(" DEBUG =>  Enviat: ", -1);
-                printf("bytes=%d, comanda=%s id=%s, mac=%s, alea=%s  dades=%s\n", UDP_PKG_SIZE, commands(pdu_alive_inf.pdu_type), pdu_alive_inf.system_id, pdu_alive_inf.mac_address, pdu_alive_inf.random_number, pdu_alive_inf.data);
-            }
-
             unsigned char pdu_received_alive[UDP_PKG_SIZE] = {"\n"};
             int has_received_pkg = recvfrom(sockfd, pdu_received_alive, UDP_PKG_SIZE, 0, (struct sockaddr *)&server_address, &(socklen_t){sizeof(server_address)});
             if (has_received_pkg < 0)
