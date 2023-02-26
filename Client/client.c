@@ -362,11 +362,7 @@ void connection_phase(int status, struct cfg user_cfg, int debug, char *boot_nam
             show_status(" DEBUG =>  Enviat: ", -1);
             printf("bytes=%d, comanda=%s id=%s, mac=%s, alea=%s  dades=%s\n", UDP_PKG_SIZE, commands(pdu_reg_req.pdu_type), pdu_reg_req.system_id, pdu_reg_req.mac_address, pdu_reg_req.random_number, pdu_reg_req.data);
         }
-        if (process_made > 1)
-        {
-
-            show_status("MSG.  =>  Client passa a l'estat:", status);
-        }
+        show_status("MSG.  =>  Client passa a l'estat:", status);
 
         packets_sent++;
 
@@ -426,42 +422,44 @@ void connection_phase(int status, struct cfg user_cfg, int debug, char *boot_nam
                 exit(-1);
             }
             pdu_package[has_received_pkg] = '\0';
+            struct pdu_udp received_reg_pdu = unpack_pdu_udp((char *)pdu_package);
+            if (debug == 1)
+            {
+                show_status(" DEBUG =>  Rebut: ", -1);
+                printf("bytes=%d, comanda=%s, id=%s, mac=%s, alea=%s  dades=%s\n", UDP_PKG_SIZE, commands(received_reg_pdu.pdu_type), received_reg_pdu.system_id, received_reg_pdu.mac_address, received_reg_pdu.random_number, received_reg_pdu.data);
+            }
             switch (pdu_package[0])
             {
             case REGISTER_ACK: // 0x02
                 status = REGISTERED;
                 show_status("MSG.  =>  Equip passa a l'estat", status);
-                struct pdu_udp received_reg_pdu = unpack_pdu_udp((char *)pdu_package);
                 alive_phase(sockfd, status, user_cfg, server_address, received_reg_pdu, debug, boot_name);
                 break;
             case REGISTER_NACK: // 0x04
-                if (process_made <= O)
-                {
-                    sleep(U); // wait U seconds and restart a new registration process
-                    if (debug == 1)
-                    {
-                        struct pdu_udp received_reg_pdu = unpack_pdu_udp((char *)pdu_package);
-                        show_status(" DEBUG =>  Rebut: ", -1);
-                        printf("bytes=%d, comanda=%s, id=%s, mac=%s, alea=%s  dades=%s\n\n", UDP_PKG_SIZE, commands(received_reg_pdu.pdu_type), received_reg_pdu.system_id, received_reg_pdu.mac_address, received_reg_pdu.random_number, received_reg_pdu.data);
-                        show_status("INFO  =>  Petició de registre errònia, motiu:", -1);
-                        printf("%s\n", received_reg_pdu.data);
-                        show_status("INFO  =>  Fallida registre amb servidor: localhost\n", -1);
-                        printf("%d\n", process_made);
-                    }
 
-                    // Restart the registration process
-                    packets_sent = 0;
-                    interval = T;
-                    status = WAIT_REG_RESPONSE;
-                    process_made += 1;
+                sleep(U); // wait U seconds and restart a new registration process
+                if (debug == 1)
+                {
+                    show_status("INFO  =>  Petició de registre errònia, motiu:", -1);
+                    printf("%s\n", received_reg_pdu.data);
+                    show_status("INFO  =>  Fallida registre amb servidor: localhost\n", -1);
                 }
+
+                // Restart the registration process
+                packets_sent = 0;
+                interval = T;
+                status = WAIT_REG_RESPONSE;
+                process_made += 1;
+
                 break;
             case REGISTER_REJ: // 0x06
                 status = DISCONNECTED;
                 char data[50];
                 memcpy(data, &pdu_package[28], 50);
-                printf("REGISTER REJECTED: %s", data);
-
+                show_status("INFO  =>  Petició de registre rebutjada, motiu: ", -1);
+                printf("%s\n", data);
+                show_status("INFO  =>  Registre rebutjat per el servidor: ", -1);
+                printf("%s\n", user_cfg.nms_id);
                 break;
             case ERROR: // 0x0F
                 // process_made += 1;
