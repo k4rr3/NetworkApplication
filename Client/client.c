@@ -106,8 +106,8 @@ char *extractElements(char *src, int start, int numElements);
 int check_equal_pdu(struct pdu_udp pdu1, struct pdu_udp pdu2);
 char *commands(int command);
 int known_command(char command[]);
-void command_phase(struct cfg user_config, char *command, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address, char *boot_name);
-void send_cfg(struct cfg user_config, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address, char *boot_name);
+void command_phase(struct cfg user_config, char *command, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address, char *boot_name, int debug);
+void send_cfg(struct cfg user_config, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address, char *boot_name, int debug);
 long int get_file_size(const char *filename);
 char *search_arg(int argc, char *argv[], char *option, char *name);
 void send_file_by_lines(int sockfd, struct cfg user_config, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address, char *boot_name);
@@ -598,7 +598,7 @@ void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in
             command[strcspn(command, "\n")] = 0; // Deleting the \n that fgets function sets by default at the end of the array where input was written
             if (known_command(command))
             {
-                command_phase(user_cfg, command, received_reg_pdu, server_address, boot_name); // tcp_phase
+                command_phase(user_cfg, command, received_reg_pdu, server_address, boot_name, debug); // tcp_phase
             }
             else
             {
@@ -619,7 +619,7 @@ void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in
                 if (debug == 1)
                 {
                     show_status(" DEBUG =>  Rebut: ", -1);
-                    printf("bytes=%d, comanda=%s, id=%s, mac=%s, alea=%s  dades=%s\n\n", UDP_PKG_SIZE, commands(received_alive_pdu.pdu_type), received_alive_pdu.system_id, received_alive_pdu.mac_address, received_alive_pdu.random_number, received_alive_pdu.data);
+                    printf("bytes=%d, comanda=%s, id=%s, mac=%s, alea=%s  dades=%s\n", UDP_PKG_SIZE, commands(received_alive_pdu.pdu_type), received_alive_pdu.system_id, received_alive_pdu.mac_address, received_alive_pdu.random_number, received_alive_pdu.data);
                 }
                 if (check_equal_pdu(received_alive_pdu, received_reg_pdu) == 0)
                 {
@@ -638,19 +638,16 @@ void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in
                         {
                             status = SEND_ALIVE;
                             show_status("MSG.  =>  Equip passa a l'estat: ", status);
-                            if (debug == 1)
-                            {
-                                if (check_equal_pdu(received_alive_pdu, received_reg_pdu) != 0)
-                                {
-                                    show_status("INFO  =>  Acceptat ALIVE ", -1);
-                                    printf("%s\n \t(id: %s, mac: %s, alea:%s, port tcp: %s)\n", user_cfg.nms_id, received_alive_pdu.system_id, received_alive_pdu.mac_address, received_alive_pdu.random_number, user_cfg.nms_udp_port);
-                                }
-                                else
-                                {
-                                    show_status("INFO  =>  Denegada subscripció amb servidor: ", -1);
-                                    printf("%s\n \t(id: %s, mac: %s, alea:%s, port tcp: %s)\n", user_cfg.nms_id, received_alive_pdu.system_id, received_alive_pdu.mac_address, received_alive_pdu.random_number, user_cfg.nms_udp_port);
-                                }
-                            }
+                        }
+                        if (check_equal_pdu(received_alive_pdu, received_reg_pdu) != 0)
+                        {
+                            show_status("INFO  =>  Acceptat ALIVE ", -1);
+                            printf("(Servidor id: %s, mac: %s, alea:%s)\n", received_alive_pdu.system_id, received_alive_pdu.mac_address, received_alive_pdu.random_number);
+                        }
+                        else
+                        {
+                            show_status("INFO  =>  Denegada subscripció amb servidor: ", -1);
+                            printf("%s\n \t(id: %s, mac: %s, alea:%s, port tcp: %s)\n", user_cfg.nms_id, received_alive_pdu.system_id, received_alive_pdu.mac_address, received_alive_pdu.random_number, user_cfg.nms_udp_port);
                         }
                         break;
                     case ALIVE_REJ:
@@ -671,7 +668,12 @@ void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in
         }
 
         current_time = time(NULL);
-        sleep(R - (current_time - last_sent_pkg_time)); // Calculate if select() already executed the Rs timeout
+        int sleep_time = R - (current_time - last_sent_pkg_time);
+        if (sleep_time < 0)
+        { // if the sleep calc is less than 0, then sleep() waits undefinitely which may occur in some cases
+            sleep_time = 0;
+        }
+        sleep(sleep_time); // Calculate if select() already executed the Rs timeout
     }
     // After O sent ALIVE_INF without server response(ALIVE_ACK), REGISTER proccess is reseted
     status = DISCONNECTED;
@@ -703,13 +705,18 @@ int known_command(char command[])
 //
 // COMMAND EXECUTION PHASE
 //
-void command_phase(struct cfg user_config, char *command, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address, char *boot_name)
+void command_phase(struct cfg user_config, char *command, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address, char *boot_name, int debug)
 {
     if (strcmp((const char *)command, "send-cfg") == 0) // strcmp returns 0 if both strings are equal
     {
+        if (debug == 1)
+        {
+            show_status("DEBUG =>  Creat procés per gestionar comanda sobre arxiu configuració ", -1);
+        }
+
         show_status("MSG.  =>  Sol·licitud d'enviament d'arxiu de configuració al servidor ", -1);
         printf("(%s)\n", boot_name);
-        send_cfg(user_config, received_reg_pdu, server_address, boot_name);
+        send_cfg(user_config, received_reg_pdu, server_address, boot_name, debug);
     }
     else if (strcmp((const char *)command, "get-cfg") == 0)
     {
@@ -723,23 +730,21 @@ void command_phase(struct cfg user_config, char *command, struct pdu_udp receive
     }
 }
 
-void send_cfg(struct cfg user_config, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address, char *boot_name)
+void send_cfg(struct cfg user_config, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address, char *boot_name, int debug)
 {
-    int sockfd;
+    int sockfd_tcp;
 
     // socket create and verification
-    sockfd = socket(AF_INET, SOCK_STREAM, 0);
-    if (sockfd == -1)
+    sockfd_tcp = socket(AF_INET, SOCK_STREAM, 0);
+    if (sockfd_tcp == -1)
     {
         printf("socket creation failed...\n");
         exit(0);
     }
-    else
-        printf("Socket successfully created..\n");
 
     server_address.sin_port = htons(atoi(received_reg_pdu.data)); // Assign the port received from the REGISTER_ACK to the sockaddr_in for tcp file sharing
 
-    if (connect(sockfd, (struct sockaddr *)&server_address, sizeof(server_address)) != 0) // connect the client socket to server socket
+    if (connect(sockfd_tcp, (struct sockaddr *)&server_address, sizeof(server_address)) != 0) // connect the client socket to server socket
     {
         perror("connect() failed:");
         exit(-1);
@@ -755,11 +760,11 @@ void send_cfg(struct cfg user_config, struct pdu_udp received_reg_pdu, struct so
     struct pdu_tcp try_send_file_pdu = generate_pdu_tcp(user_config, SEND_FILE, received_reg_pdu.random_number, data);
     generate_pdu_tcp_array(try_send_file_pdu, pdu_package, TCP_PKG_SIZE);
     fd_set read_fds;
-    FD_ZERO(&read_fds);        // clears the file descriptor set read_fds and initializes it to the empty set.
-    FD_SET(sockfd, &read_fds); // Adds the sockfd file descriptor to the read_fds set
+    FD_ZERO(&read_fds);            // clears the file descriptor set read_fds and initializes it to the empty set.
+    FD_SET(sockfd_tcp, &read_fds); // Adds the sockfd file descriptor to the read_fds set
     struct timeval timeout = {W, 0};
-    send(sockfd, pdu_package, sizeof(pdu_package), 0);
-    int select_status = select(sockfd + 1, &read_fds, NULL, NULL, &timeout);
+    send(sockfd_tcp, pdu_package, sizeof(pdu_package), 0);
+    int select_status = select(sockfd_tcp + 1, &read_fds, NULL, NULL, &timeout);
     if (select_status == -1)
     {
         perror("select() failed");
@@ -767,12 +772,12 @@ void send_cfg(struct cfg user_config, struct pdu_udp received_reg_pdu, struct so
     }
     else if (select_status == 0) // Timeout occurred, we consider the communication with the server isn't working properly
     {
-        printf("TIMEOUT OCCURRED\n");
-        close(sockfd);
+        close(sockfd_tcp);
+        // alive_phase(sockfd_udp, REGISTERED, user_config, server_address, received_reg_pdu, debug, boot_name, 1);
     }
     else
     {
-        int has_received_pkg = recv(sockfd, pdu_package, sizeof(pdu_package), 0);
+        int has_received_pkg = recv(sockfd_tcp, pdu_package, sizeof(pdu_package), 0);
         if (has_received_pkg < 0)
         {
             perror("recvfrom() failed");
@@ -783,13 +788,13 @@ void send_cfg(struct cfg user_config, struct pdu_udp received_reg_pdu, struct so
         if (serv_response.pdu_type == SEND_ACK)
         {
             printf("send file\n");
-            send_file_by_lines(sockfd, user_config, received_reg_pdu, server_address, boot_name);
+            send_file_by_lines(sockfd_tcp, user_config, received_reg_pdu, server_address, boot_name);
         }
 
-        close(sockfd);
+        close(sockfd_tcp);
+        show_status("MSG.  =>  Finalitzat enviament d'arxiu de configuració al servidor ", -1);
+        printf("(%s)\n", boot_name);
     }
-    show_status("MSG.  =>  Finalitzat enviament d'arxiu de configuració al servidor ", -1);
-    printf("(%s)\n", boot_name);
 }
 long int get_file_size(const char *filename)
 {
