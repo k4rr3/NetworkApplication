@@ -640,7 +640,7 @@ void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in
                             show_status("MSG.  =>  Equip passa a l'estat: ", status);
                             if (debug == 1)
                             {
-                                if (check_equal_pdu(received_alive_pdu, received_reg_pdu) == 0)
+                                if (check_equal_pdu(received_alive_pdu, received_reg_pdu) != 0)
                                 {
                                     show_status("INFO  =>  Acceptat ALIVE ", -1);
                                     printf("%s\n \t(id: %s, mac: %s, alea:%s, port tcp: %s)\n", user_cfg.nms_id, received_alive_pdu.system_id, received_alive_pdu.mac_address, received_alive_pdu.random_number, user_cfg.nms_udp_port);
