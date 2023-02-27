@@ -5,6 +5,7 @@
 #include <time.h>
 #include <sys/types.h>
 #include <sys/time.h>
+#include <fcntl.h>
 
 #include <sys/socket.h>
 #include <arpa/inet.h>
@@ -95,11 +96,11 @@ struct pdu_tcp
 struct cfg get_client_cfg(char *file_name);
 char *get_line(char line[], FILE *file);
 void show_status(char text[], int status);
-void connection_phase(int status, struct cfg user_cfg, int debug, char *boot_name);
+void connection_phase(int status, struct cfg user_cfg, int debug, char *boot_name, char random_number[7], int process_made);
 struct pdu_udp generate_pdu_udp(struct cfg user_cfg, int pdu_type, char random_number[], char data[]);
 void generate_pdu_udp_array(struct pdu_udp pdu, unsigned char pdu_package[], int array_size);
 void copyElements(char *src, char *dest, int start, int numElements);
-void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in server_address, struct pdu_udp received_reg_pdu, int debug, char *boot_name);
+void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in server_address, struct pdu_udp received_reg_pdu, int debug, char *boot_name, int process_made);
 struct pdu_udp unpack_pdu_udp(char pdu_package[]);
 char *extractElements(char *src, int start, int numElements);
 int check_equal_pdu(struct pdu_udp pdu1, struct pdu_udp pdu2);
@@ -131,7 +132,7 @@ int main(int argc, char *argv[])
         printf("%s\n", user_cfg.id);
     }
     show_status("MSG.  =>  Equip passa a l'estat:", status);
-    connection_phase(status, user_cfg, debug, boot_name);
+    connection_phase(status, user_cfg, debug, boot_name, "000000", 1);
 }
 
 void show_status(char text[], int status)
@@ -296,7 +297,7 @@ char *search_arg(int argc, char *argv[], char *option, char *name)
 //
 // ESTABLISH CONNECTION WITH THE SERVER AND REGISTER PHASE
 //
-void connection_phase(int status, struct cfg user_cfg, int debug, char *boot_name)
+void connection_phase(int status, struct cfg user_cfg, int debug, char *boot_name, char random_number[7], int process_made)
 {
     int sockfd;
     struct sockaddr_in client_address, server_address;
@@ -336,12 +337,12 @@ void connection_phase(int status, struct cfg user_cfg, int debug, char *boot_nam
     server_address.sin_port = htons(atoi((const char *)user_cfg.nms_udp_port));
 
     // Create PDU REGISTER_REQ package
-    struct pdu_udp pdu_reg_req = generate_pdu_udp(user_cfg, REGISTER_REQ, "000000", "");
+    struct pdu_udp pdu_reg_req = generate_pdu_udp(user_cfg, REGISTER_REQ, random_number, "");
     unsigned char pdu_package[UDP_PKG_SIZE];
     // generate_pdu_udp_array(pdu_reg_req, pdu_package, UDP_PKG_SIZE);
     int interval = T;
     int packets_sent = 0;
-    int process_made = 1;
+    // int process_made = 1;
     status = WAIT_REG_RESPONSE;
     while (status != REGISTERED && status != DISCONNECTED && process_made <= O)
     {
@@ -432,12 +433,14 @@ void connection_phase(int status, struct cfg user_cfg, int debug, char *boot_nam
             {
             case REGISTER_ACK: // 0x02
                 status = REGISTERED;
-                show_status("MSG.  =>  Equip passa a l'estat", status);
-                alive_phase(sockfd, status, user_cfg, server_address, received_reg_pdu, debug, boot_name);
+                show_status("MSG.  =>  Equip passa a l'estat: ", status);
+                show_status("INFO  =>  Acceptada subscripció amb servidor: ", -1);
+                printf("%s\n \t(id: %s, mac: %s, alea:%s, port tcp: %s)\n", user_cfg.nms_id, received_reg_pdu.system_id, received_reg_pdu.mac_address, received_reg_pdu.random_number, user_cfg.nms_udp_port);
+
+                alive_phase(sockfd, status, user_cfg, server_address, received_reg_pdu, debug, boot_name, process_made);
                 break;
             case REGISTER_NACK: // 0x04
 
-                sleep(U); // wait U seconds and restart a new registration process
                 if (debug == 1)
                 {
                     show_status("INFO  =>  Petició de registre errònia, motiu:", -1);
@@ -445,12 +448,11 @@ void connection_phase(int status, struct cfg user_cfg, int debug, char *boot_nam
                     show_status("INFO  =>  Fallida registre amb servidor: localhost\n", -1);
                 }
 
-                // Restart the registration process
+                sleep(U); // wait U seconds and restart a new registration process
                 packets_sent = 0;
                 interval = T;
                 status = WAIT_REG_RESPONSE;
                 process_made += 1;
-
                 break;
             case REGISTER_REJ: // 0x06
                 status = DISCONNECTED;
@@ -538,14 +540,17 @@ struct pdu_tcp unpack_pdu_tcp(char pdu_package[])
 }
 int check_equal_pdu(struct pdu_udp pdu1, struct pdu_udp pdu2)
 {
-    int equal = 0;
-    equal = strcmp(pdu1.system_id, pdu2.system_id);
-    equal = strcmp(pdu1.mac_address, pdu2.mac_address);
-    equal = strcmp(pdu1.random_number, pdu2.random_number);
+    int equal = 1; // assume the PDUs are equal until proven otherwise
+    equal &= strcmp(pdu1.system_id, pdu2.system_id) == 0;
+    equal &= strcmp(pdu1.mac_address, pdu2.mac_address) == 0;
+    equal &= strcmp(pdu1.random_number, pdu2.random_number) == 0;
     return equal;
 }
-void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in server_address, struct pdu_udp received_reg_pdu, int debug, char *boot_name)
+
+void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in server_address, struct pdu_udp received_reg_pdu, int debug, char *boot_name, int process_made)
 {
+    int flags = fcntl(sockfd, F_GETFL, 0);
+    fcntl(sockfd, F_SETFL, flags | O_NONBLOCK);
     if (debug == 1)
     {
         show_status("DEBUG =>  Creat procés per gestionar alives\n", -1);
@@ -553,7 +558,6 @@ void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in
     }
 
     time_t current_time, last_sent_pkg_time;
-    struct timeval timeout = {R, 0};
     // Create PDU ALIVE_INF package
     struct pdu_udp pdu_alive_inf = generate_pdu_udp(user_cfg, ALIVE_INF, received_reg_pdu.random_number, "");
     unsigned char pdu_package[UDP_PKG_SIZE];
@@ -563,6 +567,7 @@ void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in
 
     while (status != DISCONNECTED && non_confirmated_alives < S)
     {
+        struct timeval timeout = {R, 0};
         if (sendto(sockfd, pdu_package, UDP_PKG_SIZE, 0, (struct sockaddr *)&server_address, sizeof(server_address)) < 0)
         {
             perror("sendto() failed");
@@ -614,43 +619,53 @@ void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in
                 if (debug == 1)
                 {
                     show_status(" DEBUG =>  Rebut: ", -1);
-                    printf("bytes=%d, comanda=%s, id=%s, mac=%s, alea=%s  dades=%s\n\n", UDP_PKG_SIZE, commands(received_alive_pdu.pdu_type), pdu_alive_inf.system_id, pdu_alive_inf.mac_address, pdu_alive_inf.random_number, pdu_alive_inf.data);
+                    printf("bytes=%d, comanda=%s, id=%s, mac=%s, alea=%s  dades=%s\n\n", UDP_PKG_SIZE, commands(received_alive_pdu.pdu_type), received_alive_pdu.system_id, received_alive_pdu.mac_address, received_alive_pdu.random_number, received_alive_pdu.data);
                 }
-
-                switch (pdu_received_alive[0])
+                if (check_equal_pdu(received_alive_pdu, received_reg_pdu) == 0)
                 {
-                case ALIVE_ACK:
-                    if (status == REGISTERED)
+                    show_status("INFO  =>  Error recepció paquet UDP. Dades servidor incorrecte", -1);
+                    printf("\n \t(correcte: id= %s, mac= %s, alea=%s)\n", received_reg_pdu.system_id, received_reg_pdu.mac_address, received_reg_pdu.random_number);
+                    non_confirmated_alives += 1;
+                    printf("NON %d\n", non_confirmated_alives);
+                }
+                else
+                {
+                    switch (pdu_received_alive[0])
                     {
-                        status = SEND_ALIVE;
-                        show_status("MSG.  =>  Equip passa a l'estat:", status);
-                        if (debug == 1)
+                    case ALIVE_ACK:
+                        non_confirmated_alives = 0;
+                        if (status == REGISTERED)
                         {
-                            if (check_equal_pdu(received_alive_pdu, received_reg_pdu) == 0)
+                            status = SEND_ALIVE;
+                            show_status("MSG.  =>  Equip passa a l'estat: ", status);
+                            if (debug == 1)
                             {
-                                show_status("INFO  =>  Acceptada subscripció amb servidor: ", -1);
-                                printf("%s\n \t(id: %s, mac: %s, alea:%s, port tcp: %s)\n", user_cfg.nms_id, received_alive_pdu.system_id, received_alive_pdu.mac_address, received_alive_pdu.random_number, user_cfg.nms_udp_port);
-                            }
-                            else
-                            {
-                                show_status("INFO  =>  Denegada subscripció amb servidor: ", -1);
-                                printf("%s\n \t(id: %s, mac: %s, alea:%s, port tcp: %s)\n", user_cfg.nms_id, received_alive_pdu.system_id, received_alive_pdu.mac_address, received_alive_pdu.random_number, user_cfg.nms_udp_port);
+                                if (check_equal_pdu(received_alive_pdu, received_reg_pdu) == 0)
+                                {
+                                    show_status("INFO  =>  Acceptat ALIVE ", -1);
+                                    printf("%s\n \t(id: %s, mac: %s, alea:%s, port tcp: %s)\n", user_cfg.nms_id, received_alive_pdu.system_id, received_alive_pdu.mac_address, received_alive_pdu.random_number, user_cfg.nms_udp_port);
+                                }
+                                else
+                                {
+                                    show_status("INFO  =>  Denegada subscripció amb servidor: ", -1);
+                                    printf("%s\n \t(id: %s, mac: %s, alea:%s, port tcp: %s)\n", user_cfg.nms_id, received_alive_pdu.system_id, received_alive_pdu.mac_address, received_alive_pdu.random_number, user_cfg.nms_udp_port);
+                                }
                             }
                         }
-                    }
-                    break;
-                case ALIVE_REJ:
-                    if (status == SEND_ALIVE)
-                    {
-                        printf("ALIVE_REJ\n");
-                        status = DISCONNECTED;
-                        connection_phase(status, user_cfg, debug, boot_name);
-                    }
+                        break;
+                    case ALIVE_REJ:
+                        if (status == SEND_ALIVE)
+                        {
+                            printf("ALIVE_REJ\n");
+                            status = DISCONNECTED;
+                            connection_phase(status, user_cfg, debug, boot_name, received_reg_pdu.random_number, 2);
+                        }
 
-                case ALIVE_NACK:
-                    show_status("INFO => ALIVE_NACK rebut, es considera com no haver rebut resposta del servidor\n", -1);
-                    non_confirmated_alives += 1;
-                    break;
+                    case ALIVE_NACK:
+                        show_status("INFO => ALIVE_NACK rebut, es considera com no haver rebut resposta del servidor\n", -1);
+                        non_confirmated_alives += 1;
+                        break;
+                    }
                 }
             }
         }
@@ -658,10 +673,17 @@ void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in
         current_time = time(NULL);
         sleep(R - (current_time - last_sent_pkg_time)); // Calculate if select() already executed the Rs timeout
     }
+    // After O sent ALIVE_INF without server response(ALIVE_ACK), REGISTER proccess is reseted
     status = DISCONNECTED;
-    connection_phase(status, user_cfg, debug, boot_name);
+    show_status("MSG.  =>  Equip passa a l'estat: DISCONNECTED (Sense resposta a 3 ALIVES)\n", -1);
+    if (debug == 1)
+    {
+        show_status(" DEBUG =>  Cancelat temporitzador per enviament alives\n", -1);
+        show_status("DEBUG =>  Finalitzat procés per gestionar alives\n", -1);
+    }
+    process_made += 1;
+    connection_phase(status, user_cfg, debug, boot_name, received_reg_pdu.random_number, process_made);
 }
-
 char *extractElements(char *src, int start, int numElements)
 {
     char *dest = malloc(numElements + 1); // +1 for the null terminator
