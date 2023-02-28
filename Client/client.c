@@ -6,6 +6,7 @@
 #include <sys/types.h>
 #include <sys/time.h>
 #include <fcntl.h>
+#include <pthread.h>
 
 #include <sys/socket.h>
 #include <arpa/inet.h>
@@ -106,6 +107,7 @@ char *extractElements(char *src, int start, int numElements);
 int check_equal_pdu_udp(struct pdu_udp pdu1, struct pdu_udp pdu2);
 int check_equal_pdu_tcp(struct pdu_tcp pdu1, struct pdu_udp pdu2);
 char *commands(int command);
+void *wait_for_command(struct cfg user_config, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address, char *boot_name, int debug);
 int known_command(char command[]);
 void command_phase(struct cfg user_config, char *command, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address, char *boot_name, int debug);
 void send_cfg(struct cfg user_config, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address, char *boot_name, int debug);
@@ -578,7 +580,6 @@ void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in
 
     while (status != DISCONNECTED && non_confirmated_alives < S)
     {
-        struct timeval timeout = {R, 0};
         if (sendto(sockfd, pdu_package, UDP_PKG_SIZE, 0, (struct sockaddr *)&server_address, sizeof(server_address)) < 0)
         {
             perror("sendto() failed");
@@ -593,30 +594,16 @@ void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in
         }
 
         fd_set read_fds;
-        FD_ZERO(&read_fds);   // clears the file descriptor set read_fds and initializes it to the empty set.
-        FD_SET(0, &read_fds); // Adds the stdin file descriptor to the read_fds set
-
-        int select_status = select(FD_SETSIZE, &read_fds, NULL, NULL, &timeout); // FD_SETSIZE to ensure that all file descriptors are examined.
+        FD_ZERO(&read_fds);        // clears the file descriptor set read_fds and initializes it to the empty set.
+        FD_SET(sockfd, &read_fds); // Adds the sockfd file descriptor to the read_fds set
+        struct timeval timeout = {R, 0};
+        int select_status = select(sockfd + 1, &read_fds, NULL, NULL, &timeout);
         if (select_status == -1)
         {
             perror("select() failed");
             exit(-1);
         }
         else if (select_status != 0) // Command was detected in fd0(stdin)
-        {
-            char command[10];
-            fgets(command, 10, stdin);           // Reading what the user entered from the fd0
-            command[strcspn(command, "\n")] = 0; // Deleting the \n that fgets function sets by default at the end of the array where input was written
-            if (known_command(command))
-            {
-                command_phase(user_cfg, command, received_reg_pdu, server_address, boot_name, debug); // tcp_phase
-            }
-            else
-            {
-                show_status("MSG  => Comanda incorrecta\n", -1); // Alive phase continues because an uknown command was entered
-            }
-        }
-        else //// Timeout occurred
         {
             unsigned char pdu_received_alive[UDP_PKG_SIZE] = {"\n"};
             int has_received_pkg = recvfrom(sockfd, pdu_received_alive, UDP_PKG_SIZE, 0, (struct sockaddr *)&server_address, &(socklen_t){sizeof(server_address)});
@@ -648,6 +635,10 @@ void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in
                         {
                             status = SEND_ALIVE;
                             show_status("MSG.  =>  Equip passa a l'estat: ", status);
+                            // Start a thread to read input from user concurrently meanwhile alive phase mainteinance is being executed
+                            /* pthread_t thread_id;
+                            pthread_create(&thread_id, NULL, wait_for_command, NULL);
+                            pthread_join(user_cfg, received_reg_pdu, server_address, boot_name, debug); */
                         }
                         if (check_equal_pdu_udp(received_alive_pdu, received_reg_pdu) != 0)
                         {
@@ -675,6 +666,10 @@ void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in
                     }
                 }
             }
+        }
+        else //// Timeout occurred
+        {
+            non_confirmated_alives += 1;
         }
 
         current_time = time(NULL);
@@ -706,6 +701,35 @@ char *extractElements(char *src, int start, int numElements)
     }
     dest[numElements] = '\0'; // add the null terminator
     return dest;
+}
+
+void *wait_for_command(struct cfg user_config, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address, char *boot_name, int debug)
+{
+
+    fd_set read_fds;
+    FD_ZERO(&read_fds);   // clears the file descriptor set read_fds and initializes it to the empty set.
+    FD_SET(0, &read_fds); // Adds the stdin file descriptor to the read_fds set
+
+    int select_status = select(FD_SETSIZE, &read_fds, NULL, NULL, NULL); // FD_SETSIZE to ensure that all file descriptors are examined.
+    if (select_status == -1)
+    {
+        perror("select() failed");
+        exit(-1);
+    }
+    else if (select_status != 0) // Command was detected in fd0(stdin)
+    {
+        char command[10];
+        fgets(command, 10, stdin);           // Reading what the user entered from the fd0
+        command[strcspn(command, "\n")] = 0; // Deleting the \n that fgets function sets by default at the end of the array where input was written
+        if (known_command(command))
+        {
+            command_phase(user_config, command, received_reg_pdu, server_address, boot_name, debug); // tcp_phase
+        }
+        else
+        {
+            show_status("MSG  => Comanda incorrecta\n", -1); // Alive phase continues because an uknown command was entered
+        }
+    }
 }
 int known_command(char command[])
 {
