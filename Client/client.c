@@ -555,6 +555,9 @@ int check_equal_pdu_tcp(struct pdu_tcp pdu1, struct pdu_udp pdu2)
     equal &= strcmp(pdu1.random_number, pdu2.random_number) == 0;
     return equal;
 }
+//
+// MAINTAIN CONNECTION WITH THE SERVER AND ATTEND COMMANDS FROM USER CONCURRENTLY
+//
 void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in server_address, struct pdu_udp received_reg_pdu, int debug, char *boot_name, int process_made)
 {
     int flags = fcntl(sockfd, F_GETFL, 0);
