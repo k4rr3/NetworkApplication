@@ -11,6 +11,7 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <netdb.h>
+#include <pthread.h>
 
 #define MAX_LEN 20
 #define UDP_PKG_SIZE 78
@@ -104,7 +105,6 @@ void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in
 struct pdu_udp unpack_pdu_udp(char pdu_package[]);
 char *extractElements(char *src, int start, int numElements);
 int check_equal_pdu_udp(struct pdu_udp pdu1, struct pdu_udp pdu2);
-int check_equal_pdu_tcp(struct pdu_tcp pdu1, struct pdu_udp pdu2);
 char *commands(int command);
 int known_command(char command[]);
 void command_phase(struct cfg user_config, char *command, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address, char *boot_name, int debug);
@@ -113,8 +113,8 @@ long int get_file_size(const char *filename);
 char *search_arg(int argc, char *argv[], char *option, char *name);
 void send_file_by_lines(int sockfd, struct cfg user_config, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address, char *boot_name);
 struct pdu_tcp generate_pdu_tcp(struct cfg user_cfg, int pdu_type, char random_number[], char data[]);
-void get_cfg(struct cfg user_config, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address, char *boot_name, int debug);
-int get_file_by_lines(int sockfd, struct cfg user_config, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address, char *boot_name);
+void get_cfg(struct cfg user_config, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address, char *boot_name);
+void get_file_by_lines(int sockfd, struct cfg user_config, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address, char *boot_name);
 void generate_pdu_tcp_array(struct pdu_tcp pdu, unsigned char pdu_package[], int array_size);
 struct pdu_tcp unpack_pdu_tcp(char pdu_package[]);
 
@@ -547,14 +547,7 @@ int check_equal_pdu_udp(struct pdu_udp pdu1, struct pdu_udp pdu2)
     equal &= strcmp(pdu1.random_number, pdu2.random_number) == 0;
     return equal;
 }
-int check_equal_pdu_tcp(struct pdu_tcp pdu1, struct pdu_udp pdu2)
-{
-    int equal = 1; // assume the PDUs are equal until proven otherwise
-    equal &= strcmp(pdu1.system_id, pdu2.system_id) == 0;
-    equal &= strcmp(pdu1.mac_address, pdu2.mac_address) == 0;
-    equal &= strcmp(pdu1.random_number, pdu2.random_number) == 0;
-    return equal;
-}
+
 void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in server_address, struct pdu_udp received_reg_pdu, int debug, char *boot_name, int process_made)
 {
     int flags = fcntl(sockfd, F_GETFL, 0);
@@ -634,6 +627,7 @@ void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in
                     show_status("INFO  =>  Error recepció paquet UDP. Dades servidor incorrecte", -1);
                     printf("\n \t(correcte: id= %s, mac= %s, alea=%s)\n", received_reg_pdu.system_id, received_reg_pdu.mac_address, received_reg_pdu.random_number);
                     non_confirmated_alives += 1;
+                    printf("NON %d\n", non_confirmated_alives);
                 }
                 else
                 {
@@ -727,13 +721,9 @@ void command_phase(struct cfg user_config, char *command, struct pdu_udp receive
     }
     else if (strcmp((const char *)command, "get-cfg") == 0)
     {
-        if (debug == 1)
-        {
-            show_status("DEBUG =>  Creat procés per gestionar comanda sobre arxiu configuració \n", -1);
-        }
         show_status("MSG.  =>  Sol·licitud de recepció d'arxiu de configuració del servidor ", -1);
         printf("(%s)\n", user_config.id);
-        get_cfg(user_config, received_reg_pdu, server_address, boot_name, debug);
+        get_cfg(user_config, received_reg_pdu, server_address, boot_name);
     }
     else
     {
@@ -796,23 +786,15 @@ void send_cfg(struct cfg user_config, struct pdu_udp received_reg_pdu, struct so
         }
         pdu_package[has_received_pkg] = '\0';
         struct pdu_tcp serv_response = unpack_pdu_tcp((char *)pdu_package);
-        if (check_equal_pdu_tcp(serv_response, received_reg_pdu))
+        if (serv_response.pdu_type == SEND_ACK)
         {
             printf("send file\n");
             send_file_by_lines(sockfd_tcp, user_config, received_reg_pdu, server_address, boot_name);
-            show_status("MSG.  =>  Finalitzat enviament d'arxiu de configuració al servidor ", -1);
-            printf("(%s)\n", boot_name);
-        }
-        else
-        {
-            show_status("INFO  =>  Error en acceptació d'enviament d'arxiu de configuració\n", -1);
         }
 
         close(sockfd_tcp);
-        if (debug == 1)
-        {
-            show_status("DEBUG =>  Finalitzat procés per gestionar comanda sobre arxiu configuració\n", -1);
-        }
+        show_status("MSG.  =>  Finalitzat enviament d'arxiu de configuració al servidor ", -1);
+        printf("(%s)\n", boot_name);
     }
 }
 long int get_file_size(const char *filename)
@@ -861,7 +843,7 @@ void send_file_by_lines(int sockfd, struct cfg user_config, struct pdu_udp recei
     // Close the file send-cfg
     fclose(fp);
 }
-void get_cfg(struct cfg user_config, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address, char *boot_name, int debug)
+void get_cfg(struct cfg user_config, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address, char *boot_name)
 {
     int sockfd;
 
@@ -872,6 +854,8 @@ void get_cfg(struct cfg user_config, struct pdu_udp received_reg_pdu, struct soc
         printf("socket creation failed...\n");
         exit(0);
     }
+    else
+        printf("Socket successfully created..\n");
 
     server_address.sin_port = htons(atoi(received_reg_pdu.data)); // Assign the port received from the REGISTER_ACK to the sockaddr_in for tcp file sharing
 
@@ -886,7 +870,6 @@ void get_cfg(struct cfg user_config, struct pdu_udp received_reg_pdu, struct soc
         printf("Error: Could not open file.\n");
     }
     char data[150];
-    int err = 0;
     unsigned char pdu_package[TCP_PKG_SIZE];
     snprintf(data, sizeof(data), "%s,%ld", boot_name, file_size);
     struct pdu_tcp try_send_file_pdu = generate_pdu_tcp(user_config, GET_FILE, received_reg_pdu.random_number, data);
@@ -904,7 +887,8 @@ void get_cfg(struct cfg user_config, struct pdu_udp received_reg_pdu, struct soc
     }
     else if (select_status == 0) // Timeout occurred, we consider the communication with the server isn't working properly
     {
-        show_status("ALERT =>  No s'ha rebut informació per el canal TCP durant 3 segons\n", -1);
+        printf("TIMEOUT OCCURRED\n");
+        close(sockfd);
     }
     else
     {
@@ -919,21 +903,15 @@ void get_cfg(struct cfg user_config, struct pdu_udp received_reg_pdu, struct soc
         if (serv_response.pdu_type == GET_ACK)
         {
             printf("send file\n");
-            err = get_file_by_lines(sockfd, user_config, received_reg_pdu, server_address, boot_name);
+            get_file_by_lines(sockfd, user_config, received_reg_pdu, server_address, boot_name);
         }
-        if (err == 0)
-        {
-            show_status("MSG.  =>  Finalitzada l'obtenció arxiu de configuració del servidor ", -1);
-            printf("(%s)\n", user_config.id);
-        }
+
+        close(sockfd);
     }
-    close(sockfd);
-    if (debug == 1)
-    {
-        show_status("DEBUG =>  Finalitzat procés per gestionar comanda sobre arxiu configuració\n", -1);
-    }
+    show_status("MSG.  =>  Finalitzada l'obtenció arxiu de configuració del servidor ", -1);
+    printf("(%s)\n", user_config.id);
 }
-int get_file_by_lines(int sockfd, struct cfg user_config, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address, char *boot_name)
+void get_file_by_lines(int sockfd, struct cfg user_config, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address, char *boot_name)
 {
     FILE *fp;
     fp = fopen(boot_name, "w");
@@ -961,8 +939,7 @@ int get_file_by_lines(int sockfd, struct cfg user_config, struct pdu_udp receive
         else if (ready == 0)
         {
             close(sockfd);
-            show_status("ALERT =>  No s'ha rebut informació per el canal TCP durant 3 segons\n", -1);
-            return -1;
+            printf("Timeout: server didn't answer within 3 seconds\n");
         }
         else
         {
@@ -984,5 +961,4 @@ int get_file_by_lines(int sockfd, struct cfg user_config, struct pdu_udp receive
     close(sockfd);
     // Close the file send-cfg get-cfg
     fclose(fp);
-    return 0;
 }
