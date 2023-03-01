@@ -1,6 +1,10 @@
+import socket
+
+
 def main():
     read_server_cfg()
     read_known_devices()
+    attend_reg_requests()
 
 
 class Cfg:
@@ -22,7 +26,7 @@ class KnownDevice:
 
 server_cfg = None
 known_devices = []
-
+buffer_size = 1024
 
 def read_server_cfg():
     global server_cfg
@@ -54,4 +58,21 @@ def read_known_devices():
         print(known_devices[i].id, " ", known_devices[i].mac)
 
 
-main()
+def attend_reg_requests():
+    global buffer_size
+    sockfd_udp = create_udp_socket()
+    received_buffer = []
+    while True:
+        received_buffer = sockfd_udp.recv(buffer_size)
+        print(received_buffer.decode())
+
+def create_udp_socket():
+    global server_cfg
+    server_ip = "127.0.0.1"
+    sockfd_udp = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM)
+    sockfd_udp.bind((server_ip, int(server_cfg.udp_port)))
+    return sockfd_udp
+
+
+if __name__ == '__main__':
+    main()
