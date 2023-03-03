@@ -7,8 +7,8 @@ all:
 	@echo "On sistema es un de: linux,solaris,altres"
 
 
-linux: client.c
-	gcc client.c -o client -DLINUX $(LDFLAGS)
+linux: clientt.c
+	gcc clientt.c -o clientt -DLINUX $(LDFLAGS)
 	
 solaris: client.c
 	gcc client.c -o client -DSOLARIS $(LDFLAGS) $(SOLARISLD)

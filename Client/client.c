@@ -113,10 +113,10 @@ void command_phase(struct cfg user_config, char *command, struct pdu_udp receive
 void send_cfg(struct cfg user_config, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address, char *boot_name, int debug);
 long int get_file_size(const char *filename);
 char *search_arg(int argc, char *argv[], char *option, char *name);
-void send_file_by_lines(int sockfd, struct cfg user_config, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address, char *boot_name);
+void send_file_by_lines(int sockfd, struct cfg user_config, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address, char *boot_name, int debug);
 struct pdu_tcp generate_pdu_tcp(struct cfg user_cfg, int pdu_type, char random_number[], char data[]);
 void get_cfg(struct cfg user_config, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address, char *boot_name, int debug);
-int get_file_by_lines(int sockfd, struct cfg user_config, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address, char *boot_name);
+int get_file_by_lines(int sockfd, struct cfg user_config, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address, char *boot_name, int debug);
 void generate_pdu_tcp_array(struct pdu_tcp pdu, unsigned char pdu_package[], int array_size);
 struct pdu_tcp unpack_pdu_tcp(char pdu_package[]);
 
@@ -703,7 +703,7 @@ char *extractElements(char *src, int start, int numElements)
     return dest;
 }
 
-void *wait_for_command(struct cfg user_config, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address, char *boot_name, int debug)
+/* void *wait_for_command(struct cfg user_config, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address, char *boot_name, int debug)
 {
 
     fd_set read_fds;
@@ -730,7 +730,9 @@ void *wait_for_command(struct cfg user_config, struct pdu_udp received_reg_pdu, 
             show_status("MSG  => Comanda incorrecta\n", -1); // Alive phase continues because an uknown command was entered
         }
     }
-}
+
+} */
+
 int known_command(char command[])
 {
     return strcmp((const char *)command, "send-cfg") == 0 || strcmp((const char *)command, "get-cfg") == 0 || strcmp((const char *)command, "quit") == 0;
@@ -810,6 +812,7 @@ void send_cfg(struct cfg user_config, struct pdu_udp received_reg_pdu, struct so
     }
     else if (select_status == 0) // Timeout occurred, we consider the communication with the server isn't working properly
     {
+        show_status("ALERT =>  No s'ha rebut informació per el canal TCP durant 3 segons\n", -1);
         close(sockfd_tcp);
         // alive_phase(sockfd_udp, REGISTERED, user_config, server_address, received_reg_pdu, debug, boot_name, 1);
     }
@@ -826,7 +829,7 @@ void send_cfg(struct cfg user_config, struct pdu_udp received_reg_pdu, struct so
         if (check_equal_pdu_tcp(serv_response, received_reg_pdu))
         {
             printf("send file\n");
-            send_file_by_lines(sockfd_tcp, user_config, received_reg_pdu, server_address, boot_name);
+            send_file_by_lines(sockfd_tcp, user_config, received_reg_pdu, server_address, boot_name, debug);
             show_status("MSG.  =>  Finalitzat enviament d'arxiu de configuració al servidor ", -1);
             printf("(%s)\n", boot_name);
         }
@@ -834,12 +837,11 @@ void send_cfg(struct cfg user_config, struct pdu_udp received_reg_pdu, struct so
         {
             show_status("INFO  =>  Error en acceptació d'enviament d'arxiu de configuració\n", -1);
         }
-
-        close(sockfd_tcp);
-        if (debug == 1)
-        {
-            show_status("DEBUG =>  Finalitzat procés per gestionar comanda sobre arxiu configuració\n", -1);
-        }
+    }
+    close(sockfd_tcp);
+    if (debug == 1)
+    {
+        show_status("DEBUG =>  Finalitzat procés per gestionar comanda sobre arxiu configuració\n", -1);
     }
 }
 long int get_file_size(const char *filename)
@@ -854,7 +856,7 @@ long int get_file_size(const char *filename)
     fclose(file);
     return size;
 }
-void send_file_by_lines(int sockfd, struct cfg user_config, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address, char *boot_name)
+void send_file_by_lines(int sockfd, struct cfg user_config, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address, char *boot_name, int debug)
 {
     FILE *fp;
     char line[150];
@@ -875,15 +877,20 @@ void send_file_by_lines(int sockfd, struct cfg user_config, struct pdu_udp recei
         pdu_line = generate_pdu_tcp(user_config, SEND_DATA, received_reg_pdu.random_number, line);
         generate_pdu_tcp_array(pdu_line, (unsigned char *)pdu_package, TCP_PKG_SIZE);
         send(sockfd, pdu_package, sizeof(pdu_package), 0);
-        show_status(" DEBUG =>  Enviat: ", -1);
-        printf("bytes=%d, comanda=%s id=%s, mac=%s, alea=%s  dades=%s\n\n", TCP_PKG_SIZE, commands(pdu_line.pdu_type), pdu_line.system_id, pdu_line.mac_address, pdu_line.random_number, pdu_line.data);
+        if (debug == 1)
+        {
+            show_status(" DEBUG =>  Enviat: ", -1);
+            printf("bytes=%d, comanda=%s id=%s, mac=%s, alea=%s  dades=%s\n\n", TCP_PKG_SIZE, commands(pdu_line.pdu_type), pdu_line.system_id, pdu_line.mac_address, pdu_line.random_number, pdu_line.data);
+        }
     }
     pdu_line = generate_pdu_tcp(user_config, SEND_END, received_reg_pdu.random_number, "");
     generate_pdu_tcp_array(pdu_line, (unsigned char *)pdu_package, TCP_PKG_SIZE);
     send(sockfd, pdu_package, sizeof(pdu_package), 0);
-    show_status(" DEBUG =>  Enviat: ", -1);
-    printf("bytes=%d, comanda=%s id=%s, mac=%s, alea=%s  dades=%s\n\n", TCP_PKG_SIZE, commands(pdu_line.pdu_type), pdu_line.system_id, pdu_line.mac_address, pdu_line.random_number, pdu_line.data);
-
+    if (debug == 1)
+    {
+        show_status(" DEBUG =>  Enviat: ", -1);
+        printf("bytes=%d, comanda=%s id=%s, mac=%s, alea=%s  dades=%s\n\n", TCP_PKG_SIZE, commands(pdu_line.pdu_type), pdu_line.system_id, pdu_line.mac_address, pdu_line.random_number, pdu_line.data);
+    }
     close(sockfd);
     // Close the file send-cfg
     fclose(fp);
@@ -946,7 +953,7 @@ void get_cfg(struct cfg user_config, struct pdu_udp received_reg_pdu, struct soc
         if (serv_response.pdu_type == GET_ACK)
         {
             printf("send file\n");
-            err = get_file_by_lines(sockfd, user_config, received_reg_pdu, server_address, boot_name);
+            err = get_file_by_lines(sockfd, user_config, received_reg_pdu, server_address, boot_name, debug);
         }
         if (err == 0)
         {
@@ -960,7 +967,7 @@ void get_cfg(struct cfg user_config, struct pdu_udp received_reg_pdu, struct soc
         show_status("DEBUG =>  Finalitzat procés per gestionar comanda sobre arxiu configuració\n", -1);
     }
 }
-int get_file_by_lines(int sockfd, struct cfg user_config, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address, char *boot_name)
+int get_file_by_lines(int sockfd, struct cfg user_config, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address, char *boot_name, int debug)
 {
     FILE *fp;
     fp = fopen(boot_name, "w");
@@ -995,9 +1002,11 @@ int get_file_by_lines(int sockfd, struct cfg user_config, struct pdu_udp receive
         {
             has_received_pkg = recv(sockfd, pdu_package, sizeof(pdu_package), 0);
             pdu_line = unpack_pdu_tcp((char *)pdu_package);
-            show_status(" DEBUG =>  Rebut: ", -1);
-            printf("bytes=%d, comanda=%s id=%s, mac=%s, alea=%s  dades=%s\n\n", TCP_PKG_SIZE, commands(pdu_line.pdu_type), pdu_line.system_id, pdu_line.mac_address, pdu_line.random_number, pdu_line.data);
-
+            if (debug == 1)
+            {
+                show_status(" DEBUG =>  Rebut: ", -1);
+                printf("bytes=%d, comanda=%s id=%s, mac=%s, alea=%s  dades=%s\n\n", TCP_PKG_SIZE, commands(pdu_line.pdu_type), pdu_line.system_id, pdu_line.mac_address, pdu_line.random_number, pdu_line.data);
+            }
             if (has_received_pkg < 0)
             {
                 perror("recvfrom() failed");
