@@ -107,7 +107,7 @@ char *extractElements(char *src, int start, int numElements);
 int check_equal_pdu_udp(struct pdu_udp pdu1, struct pdu_udp pdu2);
 int check_equal_pdu_tcp(struct pdu_tcp pdu1, struct pdu_udp pdu2);
 char *commands(int command);
-void *wait_for_command(void *arg);
+void *wait_for_command();
 int known_command(char command[]);
 void command_phase(char *command);
 void send_cfg();
@@ -126,6 +126,7 @@ struct pdu_udp received_reg_pdu, received_alive_pdu;
 struct sockaddr_in client_address, server_address;
 char *boot_name, *file_name;
 int debug, status, sockfd_udp, sockfd_tcp;
+pthread_t thread_command, thread_send_alive;
 
 int main(int argc, char *argv[])
 {
@@ -562,7 +563,6 @@ void alive_phase()
 
     int flags = fcntl(sockfd_udp, F_GETFL, 0);
     fcntl(sockfd_udp, F_SETFL, flags | O_NONBLOCK);
-    pthread_t thread_send_alive;
     pthread_create(&thread_send_alive, NULL, send_alive_inf, NULL);
 
     int non_confirmated_alives = 0;
@@ -582,7 +582,7 @@ void alive_phase()
         }
         else if (select_status != 0)
         {
-            if (FD_ISSET(sockfd_udp, &read_fds)) // Command was detected in fd0(stdin)
+            if (FD_ISSET(sockfd_udp, &read_fds)) //Pkg was detected in sockfd_udp
             {
                 unsigned char pdu_received_alive[UDP_PKG_SIZE] = {"\n"};
                 int has_received_pkg = recvfrom(sockfd_udp, pdu_received_alive, UDP_PKG_SIZE, 0, (struct sockaddr *)&server_address, &(socklen_t){sizeof(server_address)});
@@ -632,6 +632,8 @@ void alive_phase()
                                 printf("ALIVE_REJ\n");
                                 status = DISCONNECTED;
                                 connection_phase(received_reg_pdu.random_number, O);
+                                pthread_exit(NULL);
+                                pthread_exit(NULL);
                             }
 
                         case ALIVE_NACK:
@@ -642,11 +644,13 @@ void alive_phase()
                     }
                 }
             }
-            else if (FD_ISSET(STDIN_FILENO, &read_fds))
+            else if (FD_ISSET(STDIN_FILENO, &read_fds)) //Command detected in fd0(stdin)
             {
                 // Start a thread to read input from user concurrently meanwhile alive phase mainteinance is being executed
-                pthread_t thread_command;
+                
                 pthread_create(&thread_command, NULL, wait_for_command, NULL);
+                pthread_join(thread_command, NULL);
+                printf("FIN THREAD\n");
             }
         }
         else //// Timeout occurred
@@ -665,6 +669,7 @@ void alive_phase()
     }
     // process_made += 1;
     connection_phase(received_reg_pdu.random_number, 1);
+    pthread_exit(NULL);
 }
 char *extractElements(char *src, int start, int numElements)
 {
@@ -712,7 +717,7 @@ void *send_alive_inf()
     }
     return NULL;
 }
-void *wait_for_command(void *arg)
+void *wait_for_command()
 {
     char command[10];
     fgets(command, 10, stdin);           // Reading what the user entered from the fd0
@@ -725,6 +730,7 @@ void *wait_for_command(void *arg)
     {
         show_status("MSG  => Comanda incorrecta\n", -1); // Alive phase continues because an uknown command was entered
     }
+
     return NULL;
 }
 int known_command(char command[])
