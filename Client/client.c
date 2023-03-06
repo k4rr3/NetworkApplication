@@ -96,7 +96,7 @@ struct pdu_tcp
 // DECLARATION
 void get_client_cfg(char *file_name);
 char *read_line(char line[], FILE *file);
-void show_status(char text[], int status);
+void show_status(char text[], int statuss);
 void connection_phase(char random_number[7], int process_made);
 struct pdu_udp generate_pdu_udp(int pdu_type, char random_number[], char data[]);
 void generate_pdu_udp_array(struct pdu_udp pdu, unsigned char pdu_package[], int array_size);
@@ -114,7 +114,7 @@ void send_cfg();
 long int get_file_size(const char *filename);
 char *search_arg(int argc, char *argv[], char *option, char *name);
 void send_file_by_lines();
-struct pdu_tcp generate_pdu_tcp( int pdu_type, char random_number[], char data[]);
+struct pdu_tcp generate_pdu_tcp(int pdu_type, char random_number[], char data[]);
 void get_cfg();
 int get_file_by_lines();
 void generate_pdu_tcp_array(struct pdu_tcp pdu, unsigned char pdu_package[], int array_size);
@@ -145,14 +145,14 @@ int main(int argc, char *argv[])
     connection_phase("000000", 1);
 }
 
-void show_status(char text[], int status)
+void show_status(char text[], int statuss)
 {
     time_t current_time;
     struct tm *time_info;
     time(&current_time);
     time_info = localtime(&current_time);
     printf("%02d:%02d:%02d %s", time_info->tm_hour, time_info->tm_min, time_info->tm_sec, text);
-    switch (status)
+    switch (statuss)
     {
     case 0xA0:
         printf("DISCONNECTED \n");
@@ -307,7 +307,7 @@ char *search_arg(int argc, char *argv[], char *option, char *name)
 //
 void connection_phase(char random_number[7], int process_made)
 {
-    
+
     struct hostent *ent;
     // Create a UDP socket, open a communication channel
     sockfd_udp = socket(AF_INET, SOCK_DGRAM, 0);
@@ -344,7 +344,7 @@ void connection_phase(char random_number[7], int process_made)
     server_address.sin_port = htons(atoi((const char *)user_config.nms_udp_port));
 
     // Create PDU REGISTER_REQ package
-    struct pdu_udp pdu_reg_req = generate_pdu_udp( REGISTER_REQ, random_number, "");
+    struct pdu_udp pdu_reg_req = generate_pdu_udp(REGISTER_REQ, random_number, "");
     unsigned char pdu_package[UDP_PKG_SIZE];
     // generate_pdu_udp_array(pdu_reg_req, pdu_package, UDP_PKG_SIZE);
     int interval = T;
@@ -374,7 +374,7 @@ void connection_phase(char random_number[7], int process_made)
         packets_sent++;
         // Wait for a response from the server
         fd_set read_fds;
-        FD_ZERO(&read_fds);        // clears the file descriptor set read_fds and initializes it to the empty set.
+        FD_ZERO(&read_fds);            // clears the file descriptor set read_fds and initializes it to the empty set.
         FD_SET(sockfd_udp, &read_fds); // Adds the sockfd file descriptor to the read_fds set
         struct timeval timeout = {interval, 0};
         int select_status = select(sockfd_udp + 1, &read_fds, NULL, NULL, &timeout);
@@ -560,12 +560,6 @@ int check_equal_pdu_tcp(struct pdu_tcp pdu1, struct pdu_udp pdu2)
 void alive_phase()
 {
 
-    if (debug == 1)
-    {
-        show_status("DEBUG =>  Creat procés per gestionar alives\n", -1);
-        show_status("DEBUG =>  Establert temporitzador per enviament alives\n", -1);
-    }
-
     int flags = fcntl(sockfd_udp, F_GETFL, 0);
     fcntl(sockfd_udp, F_SETFL, flags | O_NONBLOCK);
     pthread_t thread_send_alive;
@@ -576,7 +570,7 @@ void alive_phase()
     {
         fd_set read_fds;
         FD_ZERO(&read_fds);              // clears the file descriptor set read_fds and initializes it to the empty set.
-        FD_SET(sockfd_udp, &read_fds);       // Adds the sockfd file descriptor to the read_fds set
+        FD_SET(sockfd_udp, &read_fds);   // Adds the sockfd file descriptor to the read_fds set
         FD_SET(STDIN_FILENO, &read_fds); // Adds the stdin file descriptor to the read_fds set
 
         struct timeval timeout = {R, 0};
@@ -602,7 +596,7 @@ void alive_phase()
                     if (debug == 1)
                     {
                         show_status(" DEBUG =>  Rebut: ", -1);
-                        printf("bytes=%d, comanda=%s, id=%s, mac=%s, alea=%s  dades=%s\n", UDP_PKG_SIZE, commands(received_alive_pdu.pdu_type), received_alive_pdu.system_id, received_alive_pdu.mac_address, received_alive_pdu.random_number, received_alive_pdu.data);
+                        printf("bytes=%d, comanda=%s, id=%s, mac=%s, alea=%s  dades=%s\n\n", UDP_PKG_SIZE, commands(received_alive_pdu.pdu_type), received_alive_pdu.system_id, received_alive_pdu.mac_address, received_alive_pdu.random_number, received_alive_pdu.data);
                     }
                     if (check_equal_pdu_udp(received_alive_pdu, received_reg_pdu) == 0)
                     {
@@ -652,8 +646,7 @@ void alive_phase()
             {
                 // Start a thread to read input from user concurrently meanwhile alive phase mainteinance is being executed
                 pthread_t thread_command;
-                void *args[] = {&user_config, &received_reg_pdu, &server_address, &boot_name, &debug};
-                pthread_create(&thread_command, NULL, wait_for_command, args);
+                pthread_create(&thread_command, NULL, wait_for_command, NULL);
             }
         }
         else //// Timeout occurred
@@ -686,7 +679,7 @@ char *extractElements(char *src, int start, int numElements)
 }
 void *send_alive_inf()
 {
-    
+
     int flags = fcntl(sockfd_udp, F_GETFL, 0);
     fcntl(sockfd_udp, F_SETFL, flags | O_NONBLOCK);
     if (debug == 1)
@@ -721,29 +714,16 @@ void *send_alive_inf()
 }
 void *wait_for_command(void *arg)
 {
-    fd_set read_fds;
-    FD_ZERO(&read_fds);   // clears the file descriptor set read_fds and initializes it to the empty set.
-    FD_SET(0, &read_fds); // Adds the stdin file descriptor to the read_fds set
-
-    int select_status = select(FD_SETSIZE, &read_fds, NULL, NULL, NULL); // FD_SETSIZE to ensure that all file descriptors are examined.
-    if (select_status == -1)
+    char command[10];
+    fgets(command, 10, stdin);           // Reading what the user entered from the fd0
+    command[strcspn(command, "\n")] = 0; // Deleting the \n that fgets function sets by default at the end of the array where input was written
+    if (known_command(command))
     {
-        perror("select() failed");
-        exit(-1);
+        command_phase(command); // tcp_phase
     }
-    else if (select_status != 0) // Command was detected in fd0(stdin)
+    else
     {
-        char command[10];
-        fgets(command, 10, stdin);           // Reading what the user entered from the fd0
-        command[strcspn(command, "\n")] = 0; // Deleting the \n that fgets function sets by default at the end of the array where input was written
-        if (known_command(command))
-        {
-            command_phase(command); // tcp_phase
-        }
-        else
-        {
-            show_status("MSG  => Comanda incorrecta\n", -1); // Alive phase continues because an uknown command was entered
-        }
+        show_status("MSG  => Comanda incorrecta\n", -1); // Alive phase continues because an uknown command was entered
     }
     return NULL;
 }
@@ -751,7 +731,6 @@ int known_command(char command[])
 {
     return strcmp((const char *)command, "send-cfg") == 0 || strcmp((const char *)command, "get-cfg") == 0 || strcmp((const char *)command, "quit") == 0;
 }
-
 //
 // COMMAND EXECUTION PHASE
 //
@@ -935,10 +914,10 @@ void get_cfg()
     int err = 0;
     unsigned char pdu_package[TCP_PKG_SIZE];
     snprintf(data, sizeof(data), "%s,%ld", boot_name, file_size);
-    struct pdu_tcp try_send_file_pdu = generate_pdu_tcp( GET_FILE, received_reg_pdu.random_number, data);
+    struct pdu_tcp try_send_file_pdu = generate_pdu_tcp(GET_FILE, received_reg_pdu.random_number, data);
     generate_pdu_tcp_array(try_send_file_pdu, pdu_package, TCP_PKG_SIZE);
     fd_set read_fds;
-    FD_ZERO(&read_fds);        // clears the file descriptor set read_fds and initializes it to the empty set.
+    FD_ZERO(&read_fds);            // clears the file descriptor set read_fds and initializes it to the empty set.
     FD_SET(sockfd_tcp, &read_fds); // Adds the sockfd file descriptor to the read_fds set
     struct timeval timeout = {W, 0};
     send(sockfd_tcp, pdu_package, sizeof(pdu_package), 0);
