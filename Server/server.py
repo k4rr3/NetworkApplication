@@ -1,5 +1,9 @@
 import socket
 
+global server_cfg
+known_devices = []
+buffer_size = 1024
+
 
 def main():
     read_server_cfg()
@@ -24,10 +28,6 @@ class KnownDevice:
         self.ip_address = ip_address
 
 
-server_cfg = None
-known_devices = []
-buffer_size = 1024
-
 def read_server_cfg():
     global server_cfg
     cfg = []
@@ -38,7 +38,7 @@ def read_server_cfg():
         line = server_cfg_file.readline()
         if line != '\n' and line != '':
             cfg.append(line.split())
-
+            # server id   mac        udp_port    tcp_port
     server_cfg = Cfg(cfg[0][1], cfg[1][1], cfg[2][1], cfg[3][1])
     print(server_cfg.id, " ", server_cfg.mac, " ", server_cfg.udp_port, " ", server_cfg.tcp_port, "\n")
 
@@ -61,10 +61,10 @@ def read_known_devices():
 def attend_reg_requests():
     global buffer_size
     sockfd_udp = create_udp_socket()
-    received_buffer = []
     while True:
         received_buffer = sockfd_udp.recv(buffer_size)
         print(received_buffer.decode())
+
 
 def create_udp_socket():
     global server_cfg
@@ -72,6 +72,14 @@ def create_udp_socket():
     sockfd_udp = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM)
     sockfd_udp.bind((server_ip, int(server_cfg.udp_port)))
     return sockfd_udp
+
+
+def create_tcp_socket():
+    global server_cfg
+    server_ip = "127.0.0.1"
+    sockfd_tcp = socket.socket(family=socket.AF_INET, type=socket.SOCK_STREAM)
+    sockfd_tcp.bind((server_ip, int(server_cfg.tcp_port)))
+    return sockfd_tcp
 
 
 if __name__ == '__main__':

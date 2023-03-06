@@ -6,12 +6,12 @@
 #include <sys/types.h>
 #include <sys/time.h>
 #include <fcntl.h>
+#include <pthread.h>
 
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <netdb.h>
-#include <pthread.h>
 
 #define MAX_LEN 20
 #define UDP_PKG_SIZE 78
@@ -107,6 +107,7 @@ char *extractElements(char *src, int start, int numElements);
 int check_equal_pdu_udp(struct pdu_udp pdu1, struct pdu_udp pdu2);
 int check_equal_pdu_tcp(struct pdu_tcp pdu1, struct pdu_udp pdu2);
 char *commands(int command);
+void *wait_for_command(struct cfg user_config, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address, char *boot_name, int debug);
 int known_command(char command[]);
 void command_phase(struct cfg user_config, char *command, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address, char *boot_name, int debug);
 void send_cfg(struct cfg user_config, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address, char *boot_name, int debug);
@@ -366,9 +367,7 @@ void connection_phase(int status, struct cfg user_cfg, int debug, char *boot_nam
             printf("bytes=%d, comanda=%s id=%s, mac=%s, alea=%s  dades=%s\n", UDP_PKG_SIZE, commands(pdu_reg_req.pdu_type), pdu_reg_req.system_id, pdu_reg_req.mac_address, pdu_reg_req.random_number, pdu_reg_req.data);
         }
         show_status("MSG.  =>  Client passa a l'estat:", status);
-
         packets_sent++;
-
         // Wait for a response from the server
         fd_set read_fds;
         FD_ZERO(&read_fds);        // clears the file descriptor set read_fds and initializes it to the empty set.
@@ -552,7 +551,9 @@ int check_equal_pdu_tcp(struct pdu_tcp pdu1, struct pdu_udp pdu2)
     equal &= strcmp(pdu1.random_number, pdu2.random_number) == 0;
     return equal;
 }
-
+//
+// MAINTAIN CONNECTION WITH THE SERVER AND ATTEND COMMANDS FROM USER CONCURRENTLY
+//
 void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in server_address, struct pdu_udp received_reg_pdu, int debug, char *boot_name)
 {
     int flags = fcntl(sockfd, F_GETFL, 0);
@@ -573,7 +574,6 @@ void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in
 
     while (status != DISCONNECTED && non_confirmated_alives < S)
     {
-        struct timeval timeout = {R, 0};
         if (sendto(sockfd, pdu_package, UDP_PKG_SIZE, 0, (struct sockaddr *)&server_address, sizeof(server_address)) < 0)
         {
             perror("sendto() failed");
@@ -588,30 +588,16 @@ void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in
         }
 
         fd_set read_fds;
-        FD_ZERO(&read_fds);   // clears the file descriptor set read_fds and initializes it to the empty set.
-        FD_SET(0, &read_fds); // Adds the stdin file descriptor to the read_fds set
-
-        int select_status = select(FD_SETSIZE, &read_fds, NULL, NULL, &timeout); // FD_SETSIZE to ensure that all file descriptors are examined.
+        FD_ZERO(&read_fds);        // clears the file descriptor set read_fds and initializes it to the empty set.
+        FD_SET(sockfd, &read_fds); // Adds the sockfd file descriptor to the read_fds set
+        struct timeval timeout = {R, 0};
+        int select_status = select(sockfd + 1, &read_fds, NULL, NULL, &timeout);
         if (select_status == -1)
         {
             perror("select() failed");
             exit(-1);
         }
         else if (select_status != 0) // Command was detected in fd0(stdin)
-        {
-            char command[10];
-            fgets(command, 10, stdin);           // Reading what the user entered from the fd0
-            command[strcspn(command, "\n")] = 0; // Deleting the \n that fgets function sets by default at the end of the array where input was written
-            if (known_command(command))
-            {
-                command_phase(user_cfg, command, received_reg_pdu, server_address, boot_name, debug); // tcp_phase
-            }
-            else
-            {
-                show_status("MSG  => Comanda incorrecta\n", -1); // Alive phase continues because an uknown command was entered
-            }
-        }
-        else //// Timeout occurred
         {
             unsigned char pdu_received_alive[UDP_PKG_SIZE] = {"\n"};
             int has_received_pkg = recvfrom(sockfd, pdu_received_alive, UDP_PKG_SIZE, 0, (struct sockaddr *)&server_address, &(socklen_t){sizeof(server_address)});
@@ -643,6 +629,10 @@ void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in
                         {
                             status = SEND_ALIVE;
                             show_status("MSG.  =>  Equip passa a l'estat: ", status);
+                            // Start a thread to read input from user concurrently meanwhile alive phase mainteinance is being executed
+                            /* pthread_t thread_id;
+                            pthread_create(&thread_id, NULL, wait_for_command, NULL);
+                            pthread_join(user_cfg, received_reg_pdu, server_address, boot_name, debug); */
                         }
                         if (check_equal_pdu_udp(received_alive_pdu, received_reg_pdu) != 0)
                         {
@@ -671,6 +661,11 @@ void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in
                 }
             }
         }
+        else //// Timeout occurred
+        {
+            non_confirmated_alives += 1;
+            printf("TIMEEEOUT %d\n", non_confirmated_alives);
+        }
 
         current_time = time(NULL);
         int sleep_time = R - (current_time - last_sent_pkg_time);
@@ -688,7 +683,7 @@ void alive_phase(int sockfd, int status, struct cfg user_cfg, struct sockaddr_in
         show_status(" DEBUG =>  Cancelat temporitzador per enviament alives\n", -1);
         show_status("DEBUG =>  Finalitzat procés per gestionar alives\n", -1);
     }
-    //process_made += 1;
+    // process_made += 1;
     connection_phase(status, user_cfg, debug, boot_name, received_reg_pdu.random_number, 1);
 }
 char *extractElements(char *src, int start, int numElements)
@@ -702,6 +697,37 @@ char *extractElements(char *src, int start, int numElements)
     dest[numElements] = '\0'; // add the null terminator
     return dest;
 }
+
+/* void *wait_for_command(struct cfg user_config, struct pdu_udp received_reg_pdu, struct sockaddr_in server_address, char *boot_name, int debug)
+{
+
+    fd_set read_fds;
+    FD_ZERO(&read_fds);   // clears the file descriptor set read_fds and initializes it to the empty set.
+    FD_SET(0, &read_fds); // Adds the stdin file descriptor to the read_fds set
+
+    int select_status = select(FD_SETSIZE, &read_fds, NULL, NULL, NULL); // FD_SETSIZE to ensure that all file descriptors are examined.
+    if (select_status == -1)
+    {
+        perror("select() failed");
+        exit(-1);
+    }
+    else if (select_status != 0) // Command was detected in fd0(stdin)
+    {
+        char command[10];
+        fgets(command, 10, stdin);           // Reading what the user entered from the fd0
+        command[strcspn(command, "\n")] = 0; // Deleting the \n that fgets function sets by default at the end of the array where input was written
+        if (known_command(command))
+        {
+            command_phase(user_config, command, received_reg_pdu, server_address, boot_name, debug); // tcp_phase
+        }
+        else
+        {
+            show_status("MSG  => Comanda incorrecta\n", -1); // Alive phase continues because an uknown command was entered
+        }
+    }
+
+} */
+
 int known_command(char command[])
 {
     return strcmp((const char *)command, "send-cfg") == 0 || strcmp((const char *)command, "get-cfg") == 0 || strcmp((const char *)command, "quit") == 0;
@@ -725,6 +751,10 @@ void command_phase(struct cfg user_config, char *command, struct pdu_udp receive
     }
     else if (strcmp((const char *)command, "get-cfg") == 0)
     {
+        if (debug == 1)
+        {
+            show_status("DEBUG =>  Creat procés per gestionar comanda sobre arxiu configuració \n", -1);
+        }
         show_status("MSG.  =>  Sol·licitud de recepció d'arxiu de configuració del servidor ", -1);
         printf("(%s)\n", user_config.id);
         get_cfg(user_config, received_reg_pdu, server_address, boot_name, debug);
