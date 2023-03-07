@@ -8,6 +8,7 @@
 #include <fcntl.h>
 #include <pthread.h>
 
+#include <signal.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -29,6 +30,7 @@
 
 #define W 3
 // STATUS AND PDU ENUMS
+
 enum status
 {
     DISCONNECTED = 0xA0,
@@ -70,6 +72,35 @@ enum pdu_get_cfg
     GET_REJ = 0x38,
     GET_END = 0x3A
 };
+char *status_names[] = {
+    [DISCONNECTED] = "DISCONNECTED",
+    [WAIT_REG_RESPONSE] = "WAIT_REG_RESPONSE",
+    [WAIT_DB_CHECK] = "WAIT_DB_CHECK",
+    [REGISTERED] = "REGISTERED",
+    [SEND_ALIVE] = "SEND_ALIVE"};
+
+char *pdu_types[] = {
+    [REGISTER_REQ] = "REGISTER_REQ",
+    [REGISTER_ACK] = "REGISTER_ACK",
+    [REGISTER_NACK] = "REGISTER_NACK",
+    [REGISTER_REJ] = "REGISTER_REJ",
+    [ERROR] = "ERROR",
+    [ALIVE_INF] = "ALIVE_INF",
+    [ALIVE_ACK] = "ALIVE_ACK",
+    [ALIVE_NACK] = "ALIVE_NACK",
+    [ALIVE_REJ] = "ALIVE_REJ",
+    [SEND_FILE] = "SEND_FILE",
+    [SEND_DATA] = "SEND_DATA",
+    [SEND_ACK] = "SEND_ACK",
+    [SEND_NACK] = "SEND_NACK",
+    [SEND_REJ] = "SEND_REJ",
+    [SEND_END] = "SEND_END",
+    [GET_FILE] = "GET_FILE",
+    [GET_DATA] = "GET_DATA",
+    [GET_ACK] = "GET_ACK",
+    [GET_NACK] = "GET_NACK",
+    [GET_REJ] = "GET_REJ",
+    [GET_END] = "GET_END"};
 struct cfg
 {
     unsigned char id[7];
@@ -96,7 +127,8 @@ struct pdu_tcp
 // DECLARATION
 void get_client_cfg(char *file_name);
 char *read_line(char line[], FILE *file);
-void show_status(char text[], int statuss);
+void print_msg(char text[]);
+void print_status(char text[]);
 void connection_phase(char random_number[7]);
 struct pdu_udp generate_pdu_udp(int pdu_type, char random_number[], char data[]);
 void generate_pdu_udp_array(struct pdu_udp pdu, unsigned char pdu_package[], int array_size);
@@ -106,7 +138,6 @@ struct pdu_udp unpack_pdu_udp(char pdu_package[]);
 char *extractElements(char *src, int start, int numElements);
 int check_equal_pdu_udp(struct pdu_udp pdu1, struct pdu_udp pdu2);
 int check_equal_pdu_tcp(struct pdu_tcp pdu1, struct pdu_udp pdu2);
-char *commands(int command);
 void *command_phase();
 int known_command(char command[]);
 void send_cfg();
@@ -119,6 +150,7 @@ int get_file_by_lines();
 void generate_pdu_tcp_array(struct pdu_tcp pdu, unsigned char pdu_package[], int array_size);
 struct pdu_tcp unpack_pdu_tcp(char pdu_package[]);
 void *send_alive_inf();
+void send_alive();
 void connect_tcp_socket();
 
 struct cfg user_config;
@@ -137,100 +169,29 @@ int main(int argc, char *argv[])
     get_client_cfg(file_name);
     if (debug == 1)
     {
-        show_status("DEBUG =>  Llegits paràmetres línia de comandes\n", -1);
-        show_status("DEBUG =>  Llegits parametres arxius de configuració\n", -1);
-        show_status("DEBUG =>  Inici bucle de servei equip : ", -1);
+        print_msg("DEBUG =>  Llegits paràmetres línia de comandes\n");
+        print_msg("DEBUG =>  Llegits parametres arxius de configuració\n");
+        print_msg("DEBUG =>  Inici bucle de servei equip : ");
         printf("%s\n", user_config.id);
     }
-    show_status("MSG.  =>  Equip passa a l'estat:", status);
+    print_status("MSG.  =>  Equip passa a l'estat:");
     connection_phase("000000");
 }
 
-void show_status(char text[], int statuss)
+void print_msg(char text[])
 {
     time_t current_time;
     struct tm *time_info;
     time(&current_time);
     time_info = localtime(&current_time);
     printf("%02d:%02d:%02d %s", time_info->tm_hour, time_info->tm_min, time_info->tm_sec, text);
-    switch (statuss)
-    {
-    case 0xA0:
-        printf("DISCONNECTED \n");
-        break;
-    case 0xA2:
-        printf("WAIT_REG_RESPONSE \n");
-        break;
-    case 0xA4:
-        printf("WAIT_DB_CHECK \n");
-        break;
-    case 0xA6:
-        printf("REGISTERED \n");
-        break;
-    case 0xA8:
-        printf("SEND_ALIVE \n");
-    default:
-        break;
-    }
 }
-char *commands(int command)
+void print_status(char text[])
 {
-    switch (command)
-    {
-    case REGISTER_REQ:
-        return "REGISTER_REQ";
-        break;
-    case REGISTER_ACK:
-        return "REGISTER_ACK";
-        break;
-    case REGISTER_NACK:
-        return "REGISTER_NACK";
-        break;
-    case REGISTER_REJ:
-        return "REGISTER_REJ";
-        break;
-    case ERROR:
-        return "ERROR";
-        break;
-    case ALIVE_INF:
-        return "ALIVE_INF";
-        break;
-    case ALIVE_ACK:
-        return "ALIVE_ACK";
-        break;
-    case ALIVE_NACK:
-        return "ALIVE_NACK";
-        break;
-    case ALIVE_REJ:
-        return "ALIVE_REJ";
-        break;
-    case SEND_FILE:
-        return "SEND_FILE";
-        break;
-    case SEND_DATA:
-        return "SEND_DATA";
-        break;
-    case SEND_ACK:
-        return "SEND_ACK";
-        break;
-    case SEND_NACK:
-        return "SEND_NACK";
-        break;
-    case SEND_REJ:
-        return "SEND_NACK";
-        break;
-    case SEND_END:
-        return "SEND_END";
-        break;
-    case GET_REJ:
-        return "GET_REJ";
-        break;
-    case GET_END:
-        return "GET_END";
-        break;
-    }
-    return "";
+    print_msg(text);
+    printf("%s\n", status_names[status]);
 }
+
 void get_client_cfg(char *file_name)
 {
     char line[MAX_LEN];
@@ -356,7 +317,7 @@ void connection_phase(char random_number[7])
     {
         if (packets_sent == 0 && debug == 1)
         {
-            show_status("DEBUG =>  Registre equip, intent:  ", -1);
+            print_msg("DEBUG =>  Registre equip, intent:  ");
             printf("%d\n", registration_attempt);
         }
         generate_pdu_udp_array(pdu_reg_req, pdu_package, UDP_PKG_SIZE);
@@ -368,10 +329,10 @@ void connection_phase(char random_number[7])
         }
         if (debug == 1)
         {
-            show_status(" DEBUG =>  Enviat: ", -1);
-            printf("bytes=%d, comanda=%s id=%s, mac=%s, alea=%s  dades=%s\n", UDP_PKG_SIZE, commands(pdu_reg_req.pdu_type), pdu_reg_req.system_id, pdu_reg_req.mac_address, pdu_reg_req.random_number, pdu_reg_req.data);
+            print_msg(" DEBUG =>  Enviat: ");
+            printf("bytes=%d, comanda=%s id=%s, mac=%s, alea=%s  dades=%s\n", UDP_PKG_SIZE, pdu_types[pdu_reg_req.pdu_type], pdu_reg_req.system_id, pdu_reg_req.mac_address, pdu_reg_req.random_number, pdu_reg_req.data);
         }
-        show_status("MSG.  =>  Client passa a l'estat:", status);
+        print_status("MSG.  =>  Client passa a l'estat:");
         packets_sent++;
         // Wait for a response from the server
         fd_set read_fds;
@@ -400,9 +361,7 @@ void connection_phase(char random_number[7])
                 registration_attempt += 1;
                 if (debug == 1)
                 {
-                    show_status("INFO  =>  Fallida registre amb servidor: localhost\n", -1);
-                    // show_status("DEBUG =>  Registre equip, intent: ", -1);
-                    // printf("%d\n", process_made);
+                    print_msg("INFO  =>  Fallida registre amb servidor: localhost\n");
                 }
 
                 // Restart the registration process
@@ -427,15 +386,15 @@ void connection_phase(char random_number[7])
             received_reg_pdu = unpack_pdu_udp((char *)pdu_package);
             if (debug == 1)
             {
-                show_status(" DEBUG =>  Rebut: ", -1);
-                printf("bytes=%d, comanda=%s, id=%s, mac=%s, alea=%s  dades=%s\n", UDP_PKG_SIZE, commands(received_reg_pdu.pdu_type), received_reg_pdu.system_id, received_reg_pdu.mac_address, received_reg_pdu.random_number, received_reg_pdu.data);
+                print_msg(" DEBUG =>  Rebut: ");
+                printf("bytes=%d, comanda=%s, id=%s, mac=%s, alea=%s  dades=%s\n", UDP_PKG_SIZE, pdu_types[received_reg_pdu.pdu_type], received_reg_pdu.system_id, received_reg_pdu.mac_address, received_reg_pdu.random_number, received_reg_pdu.data);
             }
             switch (pdu_package[0])
             {
             case REGISTER_ACK: // 0x02
                 status = REGISTERED;
-                show_status("MSG.  =>  Equip passa a l'estat: ", status);
-                show_status("INFO  =>  Acceptada subscripció amb servidor: ", -1);
+                print_status("MSG.  =>  Equip passa a l'estat: ");
+                print_msg("INFO  =>  Acceptada subscripció amb servidor: ");
                 printf("%s\n \t(id: %s, mac: %s, alea:%s, port tcp: %s)\n", user_config.nms_id, received_reg_pdu.system_id, received_reg_pdu.mac_address, received_reg_pdu.random_number, user_config.nms_udp_port);
 
                 alive_phase(sockfd_udp, status, user_config, server_address_udp, received_reg_pdu, debug, boot_name);
@@ -444,9 +403,9 @@ void connection_phase(char random_number[7])
 
                 if (debug == 1)
                 {
-                    show_status("INFO  =>  Petició de registre errònia, motiu:", -1);
+                    print_msg("INFO  =>  Petició de registre errònia, motiu:");
                     printf("%s\n", received_reg_pdu.data);
-                    show_status("INFO  =>  Fallida registre amb servidor: localhost\n", -1);
+                    print_msg("INFO  =>  Fallida registre amb servidor: localhost\n");
                 }
 
                 sleep(U); // wait U seconds and restart a new registration process
@@ -459,9 +418,9 @@ void connection_phase(char random_number[7])
                 status = DISCONNECTED;
                 char data[50];
                 memcpy(data, &pdu_package[28], 50);
-                show_status("INFO  =>  Petició de registre rebutjada, motiu: ", -1);
+                print_msg("INFO  =>  Petició de registre rebutjada, motiu: ");
                 printf("%s\n", data);
-                show_status("INFO  =>  Registre rebutjat per el servidor: ", -1);
+                print_msg("INFO  =>  Registre rebutjat per el servidor: ");
                 printf("%s\n", user_config.nms_id);
                 break;
             case ERROR: // 0x0F
@@ -595,12 +554,12 @@ void alive_phase()
                     received_alive_pdu = unpack_pdu_udp((char *)pdu_received_alive);
                     if (debug == 1)
                     {
-                        show_status(" DEBUG =>  Rebut: ", -1);
-                        printf("bytes=%d, comanda=%s, id=%s, mac=%s, alea=%s  dades=%s\n", UDP_PKG_SIZE, commands(received_alive_pdu.pdu_type), received_alive_pdu.system_id, received_alive_pdu.mac_address, received_alive_pdu.random_number, received_alive_pdu.data);
+                        print_msg(" DEBUG =>  Rebut: ");
+                        printf("bytes=%d, comanda=%s, id=%s, mac=%s, alea=%s  dades=%s\n", UDP_PKG_SIZE, pdu_types[received_alive_pdu.pdu_type], received_alive_pdu.system_id, received_alive_pdu.mac_address, received_alive_pdu.random_number, received_alive_pdu.data);
                     }
                     if (check_equal_pdu_udp(received_alive_pdu, received_reg_pdu) == 0)
                     {
-                        show_status("INFO  =>  Error recepció paquet UDP. Dades servidor incorrecte", -1);
+                        print_msg("INFO  =>  Error recepció paquet UDP. Dades servidor incorrecte");
                         printf("\n \t(correcte: id= %s, mac= %s, alea=%s)\n", received_reg_pdu.system_id, received_reg_pdu.mac_address, received_reg_pdu.random_number);
                         non_confirmated_alives += 1;
                         if (non_confirmated_alives >= S)
@@ -617,16 +576,16 @@ void alive_phase()
                             if (status == REGISTERED)
                             {
                                 status = SEND_ALIVE;
-                                show_status("MSG.  =>  Equip passa a l'estat: ", status);
+                                print_status("MSG.  =>  Equip passa a l'estat: ");
                             }
                             if (check_equal_pdu_udp(received_alive_pdu, received_reg_pdu) != 0)
                             {
-                                show_status("INFO  =>  Acceptat ALIVE ", -1);
+                                print_msg("INFO  =>  Acceptat ALIVE ");
                                 printf("(Servidor id: %s, mac: %s, alea:%s)\n\n", received_alive_pdu.system_id, received_alive_pdu.mac_address, received_alive_pdu.random_number);
                             }
                             else
                             {
-                                show_status("INFO  =>  Denegada subscripció amb servidor: ", -1);
+                                print_msg("INFO  =>  Denegada subscripció amb servidor: ");
                                 printf("%s\n \t(id: %s, mac: %s, alea:%s, port tcp: %s)\n", user_config.nms_id, received_alive_pdu.system_id, received_alive_pdu.mac_address, received_alive_pdu.random_number, user_config.nms_udp_port);
                             }
                             break;
@@ -640,7 +599,7 @@ void alive_phase()
                             }
 
                         case ALIVE_NACK:
-                            show_status("INFO => ALIVE_NACK rebut, es considera com no haver rebut resposta del servidor\n", -1);
+                            print_msg("INFO => ALIVE_NACK rebut, es considera com no haver rebut resposta del servidor\n");
                             non_confirmated_alives += 1;
                             break;
                         }
@@ -664,14 +623,14 @@ void alive_phase()
     // After O sent ALIVE_INF without server response(ALIVE_ACK), REGISTER proccess is reseted
     if (registration_attempt > O)
     {
-        show_status("INFO  =>  No es pot contactar amb servidor: localhost\n", -1);
+        print_msg("INFO  =>  No es pot contactar amb servidor: localhost\n");
     }
     status = DISCONNECTED;
-    show_status("MSG.  =>  Equip passa a l'estat: DISCONNECTED (Sense resposta a 3 ALIVES)\n", -1);
+    print_msg("MSG.  =>  Equip passa a l'estat: DISCONNECTED (Sense resposta a 3 ALIVES)\n");
     if (debug == 1)
     {
-        show_status(" DEBUG =>  Cancelat temporitzador per enviament alives\n", -1);
-        show_status("DEBUG =>  Finalitzat procés per gestionar alives\n", -1);
+        print_msg(" DEBUG =>  Cancelat temporitzador per enviament alives\n");
+        print_msg("DEBUG =>  Finalitzat procés per gestionar alives\n");
     }
     pthread_join(thread_send_alive, NULL);
     connection_phase(received_reg_pdu.random_number);
@@ -687,8 +646,19 @@ char *extractElements(char *src, int start, int numElements)
     dest[numElements] = '\0'; // add the null terminator
     return dest;
 }
-void *send_alive_inf()
+/* void *send_alive_inf()
 {
+
+    struct itimerval timer;
+    timer.it_value.tv_sec = R;
+    timer.it_value.tv_usec = 0;
+    timer.it_interval = timer.it_value;
+    signal(SIGALRM, send_alive);
+    if (setitimer(ITIMER_REAL, &timer, NULL))
+    {
+        perror("setitimer() failed: ");
+        exit(-1);
+    }
 
     int flags = fcntl(sockfd_udp, F_GETFL, 0);
     fcntl(sockfd_udp, F_SETFL, flags | O_NONBLOCK);
@@ -696,6 +666,35 @@ void *send_alive_inf()
     {
         show_status("DEBUG =>  Creat procés per gestionar alives\n", -1);
         show_status("DEBUG =>  Establert temporitzador per enviament alives\n", -1);
+    }
+    return NULL;
+}
+void send_alive(int sig)
+{
+    // Create PDU ALIVE_INF package
+    struct pdu_udp pdu_alive_inf = generate_pdu_udp(ALIVE_INF, received_reg_pdu.random_number, "");
+    unsigned char pdu_package[UDP_PKG_SIZE];
+    generate_pdu_udp_array(pdu_alive_inf, pdu_package, UDP_PKG_SIZE);
+    if (sendto(sockfd_udp, pdu_package, UDP_PKG_SIZE, 0, (struct sockaddr *)&server_address_udp, sizeof(server_address_udp)) < 0)
+    {
+        perror("sendto() failed");
+        exit(-1);
+    }
+    if (debug == 1)
+    {
+        show_status(" DEBUG =>  Enviat: ", -1);
+        printf("bytes=%d, comanda=%s id=%s, mac=%s, alea=%s  dades=%s\n", UDP_PKG_SIZE, pdu_types[pdu_alive_inf.pdu_type], pdu_alive_inf.system_id, pdu_alive_inf.mac_address, pdu_alive_inf.random_number, pdu_alive_inf.data);
+    }
+} */
+void *send_alive_inf()
+{
+
+    int flags = fcntl(sockfd_udp, F_GETFL, 0);
+    fcntl(sockfd_udp, F_SETFL, flags | O_NONBLOCK);
+    if (debug == 1)
+    {
+        print_msg("DEBUG =>  Creat procés per gestionar alives\n");
+        print_msg("DEBUG =>  Establert temporitzador per enviament alives\n");
     }
 
     // Create PDU ALIVE_INF package
@@ -712,13 +711,14 @@ void *send_alive_inf()
         }
         if (debug == 1)
         {
-            show_status(" DEBUG =>  Enviat: ", -1);
-            printf("bytes=%d, comanda=%s id=%s, mac=%s, alea=%s  dades=%s\n", UDP_PKG_SIZE, commands(pdu_alive_inf.pdu_type), pdu_alive_inf.system_id, pdu_alive_inf.mac_address, pdu_alive_inf.random_number, pdu_alive_inf.data);
+            print_msg(" DEBUG =>  Enviat: ");
+            printf("bytes=%d, comanda=%s id=%s, mac=%s, alea=%s  dades=%s\n", UDP_PKG_SIZE, pdu_types[pdu_alive_inf.pdu_type], pdu_alive_inf.system_id, pdu_alive_inf.mac_address, pdu_alive_inf.random_number, pdu_alive_inf.data);
         }
         sleep(R);
     }
     return NULL;
 }
+
 void *command_phase()
 {
     char command[10];
@@ -730,10 +730,10 @@ void *command_phase()
         {
             if (debug == 1)
             {
-                show_status("DEBUG =>  Creat procés per gestionar comanda sobre arxiu configuració ", -1);
+                print_msg("DEBUG =>  Creat procés per gestionar comanda sobre arxiu configuració ");
             }
 
-            show_status("MSG.  =>  Sol·licitud d'enviament d'arxiu de configuració al servidor ", -1);
+            print_msg("MSG.  =>  Sol·licitud d'enviament d'arxiu de configuració al servidor ");
             printf("(%s)\n", boot_name);
             connect_tcp_socket();
             send_cfg();
@@ -742,9 +742,9 @@ void *command_phase()
         {
             if (debug == 1)
             {
-                show_status("DEBUG =>  Creat procés per gestionar comanda sobre arxiu configuració \n", -1);
+                print_msg("DEBUG =>  Creat procés per gestionar comanda sobre arxiu configuració \n");
             }
-            show_status("MSG.  =>  Sol·licitud de recepció d'arxiu de configuració del servidor ", -1);
+            print_msg("MSG.  =>  Sol·licitud de recepció d'arxiu de configuració del servidor ");
             printf("(%s)\n", user_config.id);
             connect_tcp_socket();
             get_cfg();
@@ -756,7 +756,7 @@ void *command_phase()
     }
     else
     {
-        show_status("MSG  => Comanda incorrecta\n", -1); // Alive phase continues because an uknown command was entered
+        print_msg("MSG  => Comanda incorrecta\n"); // Alive phase continues because an uknown command was entered
     }
 
     return NULL;
@@ -788,8 +788,8 @@ void send_cfg()
     send(sockfd_tcp, pdu_package, sizeof(pdu_package), 0);
     if (debug == 1)
     {
-        show_status(" DEBUG =>  Enviat: ", -1);
-        printf("bytes=%d, comanda=%s id=%s, mac=%s, alea=%s  dades=%s\n", UDP_PKG_SIZE, commands(try_send_file_pdu.pdu_type), try_send_file_pdu.system_id, try_send_file_pdu.mac_address, try_send_file_pdu.random_number, try_send_file_pdu.data);
+        print_msg(" DEBUG =>  Enviat: ");
+        printf("bytes=%d, comanda=%s id=%s, mac=%s, alea=%s  dades=%s\n", UDP_PKG_SIZE, pdu_types[try_send_file_pdu.pdu_type], try_send_file_pdu.system_id, try_send_file_pdu.mac_address, try_send_file_pdu.random_number, try_send_file_pdu.data);
     }
 
     int select_status = select(sockfd_tcp + 1, &read_fds, NULL, NULL, &timeout);
@@ -800,7 +800,7 @@ void send_cfg()
     }
     else if (select_status == 0) // Timeout occurred, we consider the communication with the server isn't working properly
     {
-        show_status("ALERT =>  No s'ha rebut informació per el canal TCP durant 3 segons\n", -1);
+        print_msg("ALERT =>  No s'ha rebut informació per el canal TCP durant 3 segons\n");
         close(sockfd_tcp);
         // alive_phase(sockfd_udp, REGISTERED, user_config, server_address, received_reg_pdu, debug, boot_name, 1);
     }
@@ -816,25 +816,25 @@ void send_cfg()
         struct pdu_tcp serv_response = unpack_pdu_tcp((char *)pdu_package);
         if (debug == 1)
         {
-            show_status(" DEBUG =>  Rebut: ", -1);
-            printf("bytes=%d, comanda=%s id=%s, mac=%s, alea=%s  dades=%s\n", UDP_PKG_SIZE, commands(serv_response.pdu_type), serv_response.system_id, serv_response.mac_address, serv_response.random_number, serv_response.data);
+            print_msg(" DEBUG =>  Rebut: ");
+            printf("bytes=%d, comanda=%s id=%s, mac=%s, alea=%s  dades=%s\n", UDP_PKG_SIZE, pdu_types[serv_response.pdu_type], serv_response.system_id, serv_response.mac_address, serv_response.random_number, serv_response.data);
         }
         if (check_equal_pdu_tcp(serv_response, received_reg_pdu))
         {
             printf("send file\n");
             send_file_by_lines();
-            show_status("MSG.  =>  Finalitzat enviament d'arxiu de configuració al servidor ", -1);
+            print_msg("MSG.  =>  Finalitzat enviament d'arxiu de configuració al servidor ");
             printf("(%s)\n", boot_name);
         }
         else
         {
-            show_status("INFO  =>  Error en acceptació d'enviament d'arxiu de configuració (dades pdu incorrectes)\n", -1);
+            print_msg("INFO  =>  Error en acceptació d'enviament d'arxiu de configuració (dades pdu incorrectes)\n");
         }
     }
     close(sockfd_tcp);
     if (debug == 1)
     {
-        show_status("DEBUG =>  Finalitzat procés per gestionar comanda sobre arxiu configuració\n", -1);
+        print_msg("DEBUG =>  Finalitzat procés per gestionar comanda sobre arxiu configuració\n");
     }
 }
 long int get_file_size(const char *filename)
@@ -872,8 +872,8 @@ void send_file_by_lines()
         send(sockfd_tcp, pdu_package, sizeof(pdu_package), 0);
         if (debug == 1)
         {
-            show_status(" DEBUG =>  Enviat: ", -1);
-            printf("bytes=%d, comanda=%s id=%s, mac=%s, alea=%s  dades=%s\n\n", TCP_PKG_SIZE, commands(pdu_line.pdu_type), pdu_line.system_id, pdu_line.mac_address, pdu_line.random_number, pdu_line.data);
+            print_msg(" DEBUG =>  Enviat: ");
+            printf("bytes=%d, comanda=%s id=%s, mac=%s, alea=%s  dades=%s\n\n", TCP_PKG_SIZE, pdu_types[pdu_line.pdu_type], pdu_line.system_id, pdu_line.mac_address, pdu_line.random_number, pdu_line.data);
         }
     }
     pdu_line = generate_pdu_tcp(SEND_END, received_reg_pdu.random_number, "");
@@ -881,8 +881,8 @@ void send_file_by_lines()
     send(sockfd_tcp, pdu_package, sizeof(pdu_package), 0);
     if (debug == 1)
     {
-        show_status(" DEBUG =>  Enviat: ", -1);
-        printf("bytes=%d, comanda=%s id=%s, mac=%s, alea=%s  dades=%s\n\n", TCP_PKG_SIZE, commands(pdu_line.pdu_type), pdu_line.system_id, pdu_line.mac_address, pdu_line.random_number, pdu_line.data);
+        print_msg(" DEBUG =>  Enviat: ");
+        printf("bytes=%d, comanda=%s id=%s, mac=%s, alea=%s  dades=%s\n\n", TCP_PKG_SIZE, pdu_types[pdu_line.pdu_type], pdu_line.system_id, pdu_line.mac_address, pdu_line.random_number, pdu_line.data);
     }
     close(sockfd_tcp);
     // Close the file send-cfg
@@ -942,7 +942,7 @@ void get_cfg()
     }
     else if (select_status == 0) // Timeout occurred, we consider the communication with the server isn't working properly
     {
-        show_status("ALERT =>  No s'ha rebut informació per el canal TCP durant 3 segons\n", -1);
+        print_msg("ALERT =>  No s'ha rebut informació per el canal TCP durant 3 segons\n");
     }
     else
     {
@@ -961,14 +961,14 @@ void get_cfg()
         }
         if (err == 0)
         {
-            show_status("MSG.  =>  Finalitzada l'obtenció arxiu de configuració del servidor ", -1);
+            print_msg("MSG.  =>  Finalitzada l'obtenció arxiu de configuració del servidor ");
             printf("(%s)\n", user_config.id);
         }
     }
     close(sockfd_tcp);
     if (debug == 1)
     {
-        show_status("DEBUG =>  Finalitzat procés per gestionar comanda sobre arxiu configuració\n", -1);
+        print_msg("DEBUG =>  Finalitzat procés per gestionar comanda sobre arxiu configuració\n");
     }
 }
 int get_file_by_lines()
@@ -999,7 +999,7 @@ int get_file_by_lines()
         else if (ready == 0)
         {
             close(sockfd_tcp);
-            show_status("ALERT =>  No s'ha rebut informació per el canal TCP durant 3 segons\n", -1);
+            print_msg("ALERT =>  No s'ha rebut informació per el canal TCP durant 3 segons\n");
             return -1;
         }
         else
@@ -1008,8 +1008,8 @@ int get_file_by_lines()
             pdu_line = unpack_pdu_tcp((char *)pdu_package);
             if (debug == 1)
             {
-                show_status(" DEBUG =>  Rebut: ", -1);
-                printf("bytes=%d, comanda=%s id=%s, mac=%s, alea=%s  dades=%s\n\n", TCP_PKG_SIZE, commands(pdu_line.pdu_type), pdu_line.system_id, pdu_line.mac_address, pdu_line.random_number, pdu_line.data);
+                print_msg(" DEBUG =>  Rebut: ");
+                printf("bytes=%d, comanda=%s id=%s, mac=%s, alea=%s  dades=%s\n\n", TCP_PKG_SIZE, pdu_types[pdu_line.pdu_type], pdu_line.system_id, pdu_line.mac_address, pdu_line.random_number, pdu_line.data);
             }
             if (has_received_pkg < 0)
             {
