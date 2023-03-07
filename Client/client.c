@@ -308,7 +308,6 @@ void connection_phase(char random_number[7])
     // Create PDU REGISTER_REQ package
     struct pdu_udp pdu_reg_req = generate_pdu_udp(REGISTER_REQ, random_number, "");
     unsigned char pdu_package[UDP_PKG_SIZE];
-    // generate_pdu_udp_array(pdu_reg_req, pdu_package, UDP_PKG_SIZE);
     int interval = T;
     int packets_sent = 0;
     // int process_made = 1;
