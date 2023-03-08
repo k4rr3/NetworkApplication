@@ -383,6 +383,7 @@ void connection_phase(char random_number[7])
             }
             pdu_package[has_received_pkg] = '\0';
             received_reg_pdu = unpack_pdu_udp((char *)pdu_package);
+            
             if (debug == 1)
             {
                 print_msg(" DEBUG =>  Rebut: ");

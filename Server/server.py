@@ -1,5 +1,5 @@
 #!/usr/bin/env python3.8
-import socket
+import socket, sys
 from enum import Enum
 
 
@@ -78,12 +78,30 @@ pdu_types = {
 
 
 class Pdu:
-    def __init__(self, pdu_type, system_id, mac_address, random_number, data):
+    def __init__(self, pdu_type, system_id, mac_address, alea, data):
         self.pdu_type = pdu_type
         self.system_id = system_id
         self.mac_address = mac_address
-        self.random_number = random_number
+        self.alea = alea
         self.data = data
+
+    def convert_pdu_to_pkg(self, protocol_data_size):
+        pdu = [chr(0)] * protocol_data_size
+        pdu[0] = chr(self.pdu_type)
+        pdu[1: 1 + len(self.system_id)] = self.system_id
+        pdu[8:8 + len(self.mac_address)] = self.mac_address
+        pdu[21:21 + len(self.alea)] = self.alea
+        pdu[28:28 + len(self.data)] = self.data
+        pdu = ''.join(pdu).encode()
+        return pdu
+
+
+def convert_pkg_to_pdu(package):
+    system_id = str(package[1:7].decode()).replace('\x00', '')
+    mac_address = package[8:20].decode().replace('\x00', '')
+    alea = package[21:28].decode().replace('\x00', '')
+    data = package[29:]
+    return Pdu(package[0], system_id, mac_address, alea, data)
 
 
 class Cfg:
@@ -148,11 +166,16 @@ def attend_reg_requests():
     global UDP_PKG_SIZE
     sockfd_udp = create_udp_socket()
     while True:
-        received_buffer = sockfd_udp.recv(UDP_PKG_SIZE).decode().split('\x00')
-        received_pdu = [item for item in received_buffer if item != '']
-        if not is_autorized_client(received_pdu[0], received_pdu[1]):
-            print("Cliente NO autorizado")
-            #send REGISTER_REJ amb tots els camps de la pdu a valors zeros i el camp data el motiu de rebuig
+        data, addr = sockfd_udp.recvfrom(UDP_PKG_SIZE)
+        print(data)
+        received_pdu = convert_pkg_to_pdu(data)
+        if is_autorized_client(received_pdu.system_id, received_pdu.mac_address):
+            print("Cliente autorizado")
+            pdu_udp = Pdu(PduRegister.REGISTER_ACK.value, known_devices[0].id, known_devices[0].mac, "123456",
+                          '').convert_pdu_to_pkg(UDP_PKG_SIZE)
+            sockfd_udp.sendto(pdu_udp, addr)
+            print("hola")
+
 
 def is_autorized_client(id, mac):
     global known_devices
@@ -179,4 +202,13 @@ def create_tcp_socket():
 
 
 if __name__ == '__main__':
+    # try:
     main()
+# except KeyboardInterrupt as e:  # Ctrl-C
+#     raise e
+# except SystemExit as e:  # sys.exit()
+#     raise e
+# except Exception as e:
+#     print(f'ERROR, UNEXPECTED EXCEPTION')
+#     print(f'{str(e)}')
+#     sys.exit(-1)
