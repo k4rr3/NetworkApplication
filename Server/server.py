@@ -121,14 +121,14 @@ class KnownDevice:
         self.ip_address = ip_address
 
 
-known_devices = []
+clients = []
 UDP_PKG_SIZE = 78
 TCP_PKG_SIZE = 178
 
 
 def main():
     read_server_cfg()
-    read_known_devices()
+    read_known_clients()
     attend_reg_requests()
 
 
@@ -147,8 +147,8 @@ def read_server_cfg():
     print(server_cfg.id, " ", server_cfg.mac, " ", server_cfg.udp_port, " ", server_cfg.tcp_port, "\n")
 
 
-def read_known_devices():
-    global known_devices
+def read_known_clients():
+    global clients
     equips_dat_file = open("equips.dat", "r")
     cfg = []
     line = " "
@@ -156,33 +156,64 @@ def read_known_devices():
         line = equips_dat_file.readline()
         if line != '\n' and line != '':
             cfg.append(line.split())
-            known_devices.append(KnownDevice(cfg[0][0], cfg[0][1], None, None, None))
+            clients.append(KnownDevice(cfg[0][0], cfg[0][1], None, None, None))
             cfg.pop()
-    for i in range(0, len(known_devices)):
-        print(known_devices[i].id, " ", known_devices[i].mac)
+    for i in range(0, len(clients)):
+        print(clients[i].id, " ", clients[i].mac)
 
 
 def attend_reg_requests():
     global UDP_PKG_SIZE
+    global clients
+    first_pkg = False
     sockfd_udp = create_udp_socket()
     while True:
         data, addr = sockfd_udp.recvfrom(UDP_PKG_SIZE)
-        print(data)
         received_pdu = convert_pkg_to_pdu(data)
-        if is_autorized_client(received_pdu.system_id, received_pdu.mac_address):
-            print("Cliente autorizado")
-            pdu_udp = Pdu(PduRegister.REGISTER_ACK.value, known_devices[0].id, known_devices[0].mac, "123456",
-                          '').convert_pdu_to_pkg(UDP_PKG_SIZE)
-            sockfd_udp.sendto(pdu_udp, addr)
-            print("hola")
+        cli_idx = is_known_client(received_pdu.system_id)
+        if cli_idx >= 0:
+            clients[cli_idx].status = Status.WAIT_REG_RESPONSE.value
+
+        if cli_idx == -1:
+            pdu = Pdu(PduRegister.REGISTER_REJ.value, '00000000000', '000000000000', '000000',
+                      'Motiu rebuig: Equip ' + received_pdu.system_id + ' no autoritzat')
+            sockfd_udp.sendto(pdu.convert_pdu_to_pkg(UDP_PKG_SIZE), addr)
+            break
+        elif (clients[cli_idx].status == 'REGISTERED' or clients[cli_idx].status == 'ALIVE') and check_client_data(
+                cli_idx, received_pdu):
+            pdu = Pdu(PduRegister.REGISTER_ACK.value, clients[cli_idx].id,
+                      clients[cli_idx].mac, clients[cli_idx].alea,
+                      server_cfg.tcp_port)
+        elif received_pdu.alea != '000000' and received_pdu.alea != clients[cli_idx].alea:
+            pdu = Pdu(PduRegister.REGISTER_NACK.value, '00000000000', '000000000000', '000000',
+                      'Motiu rebuig: Equip ' + received_pdu.system_id + ' alea incorrecte')
+            print(clients[cli_idx].alea)
+
+        elif received_pdu.alea == '000000':
+            pdu = Pdu(PduRegister.REGISTER_ACK.value, clients[cli_idx].id, clients[cli_idx].mac, '123456',
+                      server_cfg.tcp_port)
+            clients[cli_idx].ip_address = addr[0]
+            clients[cli_idx].status = Status.REGISTERED.value
+            first_pkg = False
+        elif not first_pkg and addr[0] != clients[cli_idx].ip_address:
+            pdu = Pdu(PduRegister.REGISTER_NACK.value, '00000000000', '000000000000', '000000',
+                      'Motiu rebuig: Equip ' + received_pdu.system_id + 'amb adreça ip incorrecta')
+        sockfd_udp.sendto(pdu.convert_pdu_to_pkg(UDP_PKG_SIZE), addr)
+
+def maintenance_control():
+    pass 
+def is_known_client(id):
+    global clients
+    for i in range(len(clients)):
+        if clients[i].id == id:
+            return i
+    return -1
 
 
-def is_autorized_client(id, mac):
-    global known_devices
-    for i in range(len(known_devices)):
-        if known_devices[i].id == id and known_devices[i].mac == mac:
-            return True
-    return False
+def check_client_data(client_index, received_pdu):
+    global clients
+    return clients[client_index].id == received_pdu.system_id and clients[
+        client_index].mac == received_pdu.mac_address and clients[client_index].alea == received_pdu.alea
 
 
 def create_udp_socket():
