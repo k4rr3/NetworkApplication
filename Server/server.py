@@ -1,5 +1,8 @@
 #!/usr/bin/env python3.8
-import socket, sys
+import random
+import socket
+import sys
+from datetime import datetime
 from enum import Enum
 
 
@@ -45,35 +48,35 @@ class PduGetCfg(Enum):
 
 
 status_names = {
-    Status.DISCONNECTED: "DISCONNECTED",
-    Status.WAIT_REG_RESPONSE: "WAIT_REG_RESPONSE",
-    Status.WAIT_DB_CHECK: "WAIT_DB_CHECK",
-    Status.REGISTERED: "REGISTERED",
-    Status.SEND_ALIVE: "SEND_ALIVE"
+    Status.DISCONNECTED.value: "DISCONNECTED",
+    Status.WAIT_REG_RESPONSE.value: "WAIT_REG_RESPONSE",
+    Status.WAIT_DB_CHECK.value: "WAIT_DB_CHECK",
+    Status.REGISTERED.value: "REGISTERED",
+    Status.SEND_ALIVE.value: "SEND_ALIVE"
 }
 
 pdu_types = {
-    PduRegister.REGISTER_REQ: "REGISTER_REQ",
-    PduRegister.REGISTER_ACK: "REGISTER_ACK",
-    PduRegister.REGISTER_NACK: "REGISTER_NACK",
-    PduRegister.REGISTER_REJ: "REGISTER_REJ",
-    PduRegister.ERROR: "ERROR",
-    PduAlive.ALIVE_INF: "ALIVE_INF",
-    PduAlive.ALIVE_ACK: "ALIVE_ACK",
-    PduAlive.ALIVE_NACK: "ALIVE_NACK",
-    PduAlive.ALIVE_REJ: "ALIVE_REJ",
-    PduSendCfg.SEND_FILE: "SEND_FILE",
-    PduSendCfg.SEND_DATA: "SEND_DATA",
-    PduSendCfg.SEND_ACK: "SEND_ACK",
-    PduSendCfg.SEND_NACK: "SEND_NACK",
-    PduSendCfg.SEND_REJ: "SEND_REJ",
-    PduSendCfg.SEND_END: "SEND_END",
-    PduGetCfg.GET_FILE: "GET_FILE",
-    PduGetCfg.GET_DATA: "GET_DATA",
-    PduGetCfg.GET_ACK: "GET_ACK",
-    PduGetCfg.GET_NACK: "GET_NACK",
-    PduGetCfg.GET_REJ: "GET_REJ",
-    PduGetCfg.GET_END: "GET_END"
+    PduRegister.REGISTER_REQ.value: "REGISTER_REQ",
+    PduRegister.REGISTER_ACK.value: "REGISTER_ACK",
+    PduRegister.REGISTER_NACK.value: "REGISTER_NACK",
+    PduRegister.REGISTER_REJ.value: "REGISTER_REJ",
+    PduRegister.ERROR.value: "ERROR",
+    PduAlive.ALIVE_INF.value: "ALIVE_INF",
+    PduAlive.ALIVE_ACK.value: "ALIVE_ACK",
+    PduAlive.ALIVE_NACK.value: "ALIVE_NACK",
+    PduAlive.ALIVE_REJ.value: "ALIVE_REJ",
+    PduSendCfg.SEND_FILE.value: "SEND_FILE",
+    PduSendCfg.SEND_DATA.value: "SEND_DATA",
+    PduSendCfg.SEND_ACK.value: "SEND_ACK",
+    PduSendCfg.SEND_NACK.value: "SEND_NACK",
+    PduSendCfg.SEND_REJ.value: "SEND_REJ",
+    PduSendCfg.SEND_END.value: "SEND_END",
+    PduGetCfg.GET_FILE.value: "GET_FILE",
+    PduGetCfg.GET_DATA.value: "GET_DATA",
+    PduGetCfg.GET_ACK.value: "GET_ACK",
+    PduGetCfg.GET_NACK.value: "GET_NACK",
+    PduGetCfg.GET_REJ.value: "GET_REJ",
+    PduGetCfg.GET_END.value: "GET_END"
 }
 
 
@@ -100,7 +103,10 @@ def convert_pkg_to_pdu(package):
     system_id = str(package[1:7].decode()).replace('\x00', '')
     mac_address = package[8:20].decode().replace('\x00', '')
     alea = package[21:28].decode().replace('\x00', '')
-    data = package[29:]
+    try:
+        data = package[29:].decode().replace('\x00', '')
+    except:
+        data = ''
     return Pdu(package[0], system_id, mac_address, alea, data)
 
 
@@ -121,6 +127,10 @@ class KnownDevice:
         self.ip_address = ip_address
 
 
+devices_file = 'equips.dat'
+server_file = 'server.cfg'
+debug = 1
+server_cfg = None
 clients = []
 UDP_PKG_SIZE = 78
 TCP_PKG_SIZE = 178
@@ -129,13 +139,32 @@ TCP_PKG_SIZE = 178
 def main():
     read_server_cfg()
     read_known_clients()
+    read_args_cfg_files()
     attend_reg_requests()
 
 
+def print_time(text):
+    current_time = datetime.now().strftime('%H:%M:%S')
+    print(current_time, text)
+
+
+def read_args_cfg_files():
+    global devices_file, server_file, debug
+    for i in range(1, len(sys.argv)):
+        if sys.argv[i] == '-d':
+            debug = 1
+        if sys.argv[i] == '-u':
+            devices_file = sys.argv[i + 1]
+        if sys.argv[i] == '-c':
+            server_file = sys.argv[i + 1]
+    if debug == 1:
+        print_time('DEBUG =>  Llegits paràmetres arxiu de configuració')
+
+
 def read_server_cfg():
-    global server_cfg
+    global server_cfg, debug, server_file
     cfg = []
-    server_cfg_file = open("server.cfg", "r")
+    server_cfg_file = open(server_file, "r")
     line = " "  # readline() returns an empty string, the end of the file has been reached,
     # while a blank line is represented by '\n', a string containing only a single newline.
     while line != '':
@@ -144,12 +173,14 @@ def read_server_cfg():
             cfg.append(line.split())
             # server id   mac        udp_port    tcp_port
     server_cfg = Cfg(cfg[0][1], cfg[1][1], cfg[2][1], cfg[3][1])
-    print(server_cfg.id, " ", server_cfg.mac, " ", server_cfg.udp_port, " ", server_cfg.tcp_port, "\n")
+    # print(server_cfg.id, " ", server_cfg.mac, " ", server_cfg.udp_port, " ", server_cfg.tcp_port, "\n")
+    if debug == 1:
+        print_time("DEBUG =>  Llegits paràmetres línia de comandes ")
 
 
 def read_known_clients():
-    global clients
-    equips_dat_file = open("equips.dat", "r")
+    global clients, devices_file
+    equips_dat_file = open(devices_file, "r")
     cfg = []
     line = " "
     while line != '':
@@ -158,21 +189,25 @@ def read_known_clients():
             cfg.append(line.split())
             clients.append(KnownDevice(cfg[0][0], cfg[0][1], None, None, None))
             cfg.pop()
-    for i in range(0, len(clients)):
-        print(clients[i].id, " ", clients[i].mac)
+    # for i in range(0, len(clients)):
+    #     print(clients[i].id, " ", clients[i].mac)
+    print_time("INFO  =>  Llegits 9 equips autoritzats en el sistema")
 
 
 def attend_reg_requests():
-    global UDP_PKG_SIZE
-    global clients
+    global UDP_PKG_SIZE, clients, pdu_types, server_cfg
     first_pkg = False
     sockfd_udp = create_udp_socket()
     while True:
         data, addr = sockfd_udp.recvfrom(UDP_PKG_SIZE)
         received_pdu = convert_pkg_to_pdu(data)
+        pdu_type = pdu_types[received_pdu.pdu_type]
+        print_time('DEBUG =>  Rebut: bytes=' + str(
+            len(data)) + ' , comanda=' + pdu_type + ', id=' + received_pdu.system_id + ', mac=' + received_pdu.mac_address + ', alea=' + received_pdu.alea + ', dades=' + received_pdu.data)
         cli_idx = is_known_client(received_pdu.system_id)
         if cli_idx >= 0:
             clients[cli_idx].status = Status.WAIT_REG_RESPONSE.value
+            print_time('MSG.  =>  Equip Sw-001 passa a estat:' + status_names[Status.WAIT_REG_RESPONSE.value])
 
         if cli_idx == -1:
             pdu = Pdu(PduRegister.REGISTER_REJ.value, '00000000000', '000000000000', '000000',
@@ -187,21 +222,32 @@ def attend_reg_requests():
         elif received_pdu.alea != '000000' and received_pdu.alea != clients[cli_idx].alea:
             pdu = Pdu(PduRegister.REGISTER_NACK.value, '00000000000', '000000000000', '000000',
                       'Motiu rebuig: Equip ' + received_pdu.system_id + ' alea incorrecte')
-            print(clients[cli_idx].alea)
 
         elif received_pdu.alea == '000000':
-            pdu = Pdu(PduRegister.REGISTER_ACK.value, clients[cli_idx].id, clients[cli_idx].mac, '123456',
+            clients[cli_idx].alea = alea_generator()
+            pdu = Pdu(PduRegister.REGISTER_ACK.value, server_cfg.id, server_cfg.mac, clients[cli_idx].alea,
                       server_cfg.tcp_port)
             clients[cli_idx].ip_address = addr[0]
             clients[cli_idx].status = Status.REGISTERED.value
+            print_time('INFO  =>  Acceptat registre. Equip: id=' + clients[cli_idx].id + ', ip=' + clients[
+                cli_idx].ip_address + ', mac=' + clients[cli_idx].mac + ' alea=' + received_pdu.alea)
+            print_time('MSG.  =>  Equip Sw-001 passa a estat:' + status_names[Status.REGISTERED.value])
+            if debug == 1:
+                print_time('DEBUG =>  Enviat: bytes=' + str(UDP_PKG_SIZE) + ' , comanda=' + pdu_types[
+                    pdu.pdu_type] + ', id=' + server_cfg.id + ', mac=' + server_cfg.mac + ', alea=' + received_pdu.alea + ', dades=' + pdu.data)
             first_pkg = False
         elif not first_pkg and addr[0] != clients[cli_idx].ip_address:
             pdu = Pdu(PduRegister.REGISTER_NACK.value, '00000000000', '000000000000', '000000',
                       'Motiu rebuig: Equip ' + received_pdu.system_id + 'amb adreça ip incorrecta')
         sockfd_udp.sendto(pdu.convert_pdu_to_pkg(UDP_PKG_SIZE), addr)
 
+        cli_idx = is_known_client(received_pdu.system_id)
+
+
 def maintenance_control():
-    pass 
+    pass
+
+
 def is_known_client(id):
     global clients
     for i in range(len(clients)):
@@ -216,19 +262,30 @@ def check_client_data(client_index, received_pdu):
         client_index].mac == received_pdu.mac_address and clients[client_index].alea == received_pdu.alea
 
 
+def alea_generator():
+    random_number = ""
+    for i in range(6):
+        random_number = random_number + str(random.randint(0, 9))
+    return random_number
+
+
 def create_udp_socket():
-    global server_cfg
+    global server_cfg, debug
     server_ip = "127.0.0.1"
     sockfd_udp = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM)
     sockfd_udp.bind((server_ip, int(server_cfg.udp_port)))
+    if debug == 1:
+        print_time('DEBUG =>  Socket UDP actiu')
     return sockfd_udp
 
 
 def create_tcp_socket():
-    global server_cfg
+    global server_cfg, debug
     server_ip = "127.0.0.1"
     sockfd_tcp = socket.socket(family=socket.AF_INET, type=socket.SOCK_STREAM)
     sockfd_tcp.bind((server_ip, int(server_cfg.tcp_port)))
+    if debug == 1:
+        print_time('DEBUG =>  Socket TCP actiu')
     return sockfd_tcp
 
 
