@@ -2,6 +2,7 @@
 import random
 import socket
 import sys
+import threading
 from datetime import datetime
 from enum import Enum
 
@@ -119,7 +120,7 @@ class Cfg:
 
 
 class KnownDevice:
-    def __init__(self, id, mac, status, alea, ip_address):
+    def __init__(self, id, mac, alea, ip_address, status):
         self.id = id
         self.mac = mac
         self.status = status
@@ -134,13 +135,18 @@ server_cfg = None
 clients = []
 UDP_PKG_SIZE = 78
 TCP_PKG_SIZE = 178
+sockfd_udp = -1
+sockfd_tcp = -1
 
 
 def main():
+    global sockfd_udp, sockfd_tcp
     read_server_cfg()
     read_known_clients()
     read_args_cfg_files()
-    attend_reg_requests()
+    sockfd_udp = create_udp_socket()
+    sockfd_tcp = create_tcp_socket()
+    reg_and_alive()
 
 
 def print_time(text):
@@ -187,64 +193,92 @@ def read_known_clients():
         line = equips_dat_file.readline()
         if line != '\n' and line != '':
             cfg.append(line.split())
-            clients.append(KnownDevice(cfg[0][0], cfg[0][1], None, None, None))
+            clients.append(KnownDevice(cfg[0][0], cfg[0][1], None, None, status_names[Status.DISCONNECTED.value]))
             cfg.pop()
     # for i in range(0, len(clients)):
     #     print(clients[i].id, " ", clients[i].mac)
     print_time("INFO  =>  Llegits 9 equips autoritzats en el sistema")
 
 
-def attend_reg_requests():
-    global UDP_PKG_SIZE, clients, pdu_types, server_cfg
-    first_pkg = False
-    sockfd_udp = create_udp_socket()
+def reg_and_alive():
+    thread_cmnd = threading.Thread(target=read_command_line)
+    thread_cmnd.start()
     while True:
-        data, addr = sockfd_udp.recvfrom(UDP_PKG_SIZE)
-        received_pdu = convert_pkg_to_pdu(data)
-        pdu_type = pdu_types[received_pdu.pdu_type]
-        print_time('DEBUG =>  Rebut: bytes=' + str(
-            len(data)) + ' , comanda=' + pdu_type + ', id=' + received_pdu.system_id + ', mac=' + received_pdu.mac_address + ', alea=' + received_pdu.alea + ', dades=' + received_pdu.data)
-        cli_idx = is_known_client(received_pdu.system_id)
-        if cli_idx >= 0:
-            clients[cli_idx].status = Status.WAIT_REG_RESPONSE.value
-            print_time('MSG.  =>  Equip Sw-001 passa a estat:' + status_names[Status.WAIT_REG_RESPONSE.value])
+        attend_reg_requests()
+    # thread_cmnd.join()
 
-        if cli_idx == -1:
-            pdu = Pdu(PduRegister.REGISTER_REJ.value, '00000000000', '000000000000', '000000',
-                      'Motiu rebuig: Equip ' + received_pdu.system_id + ' no autoritzat')
-            sockfd_udp.sendto(pdu.convert_pdu_to_pkg(UDP_PKG_SIZE), addr)
-            break
-        elif (clients[cli_idx].status == 'REGISTERED' or clients[cli_idx].status == 'ALIVE') and check_client_data(
-                cli_idx, received_pdu):
-            pdu = Pdu(PduRegister.REGISTER_ACK.value, clients[cli_idx].id,
-                      clients[cli_idx].mac, clients[cli_idx].alea,
-                      server_cfg.tcp_port)
-        elif received_pdu.alea != '000000' and received_pdu.alea != clients[cli_idx].alea:
-            pdu = Pdu(PduRegister.REGISTER_NACK.value, '00000000000', '000000000000', '000000',
-                      'Motiu rebuig: Equip ' + received_pdu.system_id + ' alea incorrecte')
 
-        elif received_pdu.alea == '000000':
-            clients[cli_idx].alea = alea_generator()
-            pdu = Pdu(PduRegister.REGISTER_ACK.value, server_cfg.id, server_cfg.mac, clients[cli_idx].alea,
-                      server_cfg.tcp_port)
-            clients[cli_idx].ip_address = addr[0]
-            clients[cli_idx].status = Status.REGISTERED.value
-            print_time('INFO  =>  Acceptat registre. Equip: id=' + clients[cli_idx].id + ', ip=' + clients[
-                cli_idx].ip_address + ', mac=' + clients[cli_idx].mac + ' alea=' + received_pdu.alea)
-            print_time('MSG.  =>  Equip Sw-001 passa a estat:' + status_names[Status.REGISTERED.value])
-            if debug == 1:
-                print_time('DEBUG =>  Enviat: bytes=' + str(UDP_PKG_SIZE) + ' , comanda=' + pdu_types[
-                    pdu.pdu_type] + ', id=' + server_cfg.id + ', mac=' + server_cfg.mac + ', alea=' + received_pdu.alea + ', dades=' + pdu.data)
-            first_pkg = False
-        elif not first_pkg and addr[0] != clients[cli_idx].ip_address:
-            pdu = Pdu(PduRegister.REGISTER_NACK.value, '00000000000', '000000000000', '000000',
-                      'Motiu rebuig: Equip ' + received_pdu.system_id + 'amb adreça ip incorrecta')
-        sockfd_udp.sendto(pdu.convert_pdu_to_pkg(UDP_PKG_SIZE), addr)
+def attend_reg_requests():
+    global UDP_PKG_SIZE, clients, pdu_types, server_cfg, sockfd_udp
+    first_pkg = False
 
-        cli_idx = is_known_client(received_pdu.system_id)
+    data, addr = sockfd_udp.recvfrom(UDP_PKG_SIZE)
+    received_pdu = convert_pkg_to_pdu(data)
+    pdu_type = pdu_types[received_pdu.pdu_type]
+    print_time('DEBUG =>  Rebut: bytes=' + str(
+        len(data)) + ' , comanda=' + pdu_type + ', id=' + received_pdu.system_id + ', mac=' + received_pdu.mac_address + ', alea=' + received_pdu.alea + ', dades=' + received_pdu.data)
+    cli_idx = is_known_client(received_pdu.system_id)
+    if cli_idx >= 0:
+        clients[cli_idx].status = Status.WAIT_REG_RESPONSE.value
+        print_time('MSG.  =>  Equip Sw-001 passa a estat:' + status_names[Status.WAIT_REG_RESPONSE.value])
+
+    if cli_idx == -1:
+        pdu = Pdu(PduRegister.REGISTER_REJ.value, '00000000000', '000000000000', '000000',
+                  'Motiu rebuig: Equip ' + received_pdu.system_id + ' no autoritzat')
+    elif (clients[cli_idx].status == 'REGISTERED' or clients[cli_idx].status == 'ALIVE') and check_client_data(
+            cli_idx, received_pdu):
+        pdu = Pdu(PduRegister.REGISTER_ACK.value, clients[cli_idx].id,
+                  clients[cli_idx].mac, clients[cli_idx].alea,
+                  server_cfg.tcp_port)
+    elif received_pdu.alea != '000000' and received_pdu.alea != clients[cli_idx].alea:
+        pdu = Pdu(PduRegister.REGISTER_NACK.value, '00000000000', '000000000000', '000000',
+                  'Motiu rebuig: Equip ' + received_pdu.system_id + ' alea incorrecte')
+
+    elif received_pdu.alea == '000000':
+        clients[cli_idx].alea = alea_generator()
+        pdu = Pdu(PduRegister.REGISTER_ACK.value, server_cfg.id, server_cfg.mac, clients[cli_idx].alea,
+                  server_cfg.tcp_port)
+        clients[cli_idx].ip_address = addr[0]
+        clients[cli_idx].status = Status.REGISTERED.value
+        print_time('INFO  =>  Acceptat registre. Equip: id=' + clients[cli_idx].id + ', ip=' + clients[
+            cli_idx].ip_address + ', mac=' + clients[cli_idx].mac + ' alea=' + received_pdu.alea)
+        print_time('MSG.  =>  Equip Sw-001 passa a estat:' + status_names[Status.REGISTERED.value])
+        if debug == 1:
+            print_time('DEBUG =>  Enviat: bytes=' + str(UDP_PKG_SIZE) + ' , comanda=' + pdu_types[
+                pdu.pdu_type] + ', id=' + server_cfg.id + ', mac=' + server_cfg.mac + ', alea=' + received_pdu.alea + ', dades=' + pdu.data)
+        first_pkg = False
+    elif not first_pkg and addr[0] != clients[cli_idx].ip_address:
+        pdu = Pdu(PduRegister.REGISTER_NACK.value, '00000000000', '000000000000', '000000',
+                  'Motiu rebuig: Equip ' + received_pdu.system_id + 'amb adreça ip incorrecta')
+    sockfd_udp.sendto(pdu.convert_pdu_to_pkg(UDP_PKG_SIZE), addr)
+
+
+def read_command_line():
+    global clients
+    while True:
+        command = input()
+        """Visualitza per pantalla una taula amb tots els equips autoritzats en el sistema
+            amb les següents dades: Nom, MAC i estat. Per els equips que estan registrats
+            també ha de mostrar l’adreça IP des de la que s’ha connectat i el nombre aleatori
+            assignat en la fase de registre."""
+        ip_addr_alea = ''
+        if command == 'list':
+            print_time("\tNom \t|\t Mac \t  |\t   Estat \t|\t Adreça IP \t|\t Alea")
+            for i in range(len(clients)):
+                if clients[i].status == status_names[Status.REGISTERED.value] or clients[i].status == status_names[
+                    Status.SEND_ALIVE.value]:
+                    ip_addr_alea = clients[i].ip_address + "\t" + clients[i].alea
+                print_time("\t" + str(clients[i].id) + "\t" + str(clients[i].mac) + "\t" + str(
+                    clients[i].status) + "\t" + ip_addr_alea)
+        elif command == 'quit':
+            sys.exit()
+        else:
+            print("Comanda no reconeguda")
 
 
 def maintenance_control():
+    global sockfd_udp, clients
+
     pass
 
 
