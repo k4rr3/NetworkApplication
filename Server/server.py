@@ -192,10 +192,10 @@ def reg_and_alive():
     #thread to wait input in terminal
     thread_cmnd = threading.Thread(target=read_command_line)
     thread_cmnd.start()
-    #thread to maintain alive phase
-    thread_alive = threading.Thread(target=maintenance_control)
-    thread_alive.start()
 
+    if debug == 1:
+        print_time("DEBUG =>  Creat fill per gestionar alives")
+    print_time("INFO  =>  Establert temporitzador per control alives")
     while True:
         #main thread
         attend_reg_requests()
@@ -222,7 +222,9 @@ def attend_reg_requests():
             print_time(f"MSG.  =>  Equip Sw-001 passa a estat:{status_names[REGISTERED]}")
             if debug == 1:
                 print_time(f"DEBUG =>  Enviat: bytes={UDP_PKG_SIZE}, comanda={pdu_types[pdu.pdu_type]}, id={server_cfg.id}, mac={server_cfg.mac}, alea={received_pdu.alea}, dades={pdu.data}")
-
+            # thread to maintain alive phase
+            thread_alive = threading.Thread(target=maintenance_control)
+            thread_alive.start()
         elif clients[cli_idx].status == "DISCONNECTED":
             """CLIENT DISCONNECTED --> WAIT_REG_RESPONSE"""
             clients[cli_idx].status = status_names[WAIT_REG_RESPONSE]
@@ -243,6 +245,9 @@ def attend_reg_requests():
                 if debug == 1:
                     print_time(f"DEBUG =>  Enviat: bytes={UDP_PKG_SIZE}, comanda={pdu_types[pdu.pdu_type]}, id={server_cfg.id}, mac={server_cfg.mac}, alea={received_pdu.alea}, dades={pdu.data}")
                 first_pkg = False
+                # thread to maintain alive phase
+                thread_alive = threading.Thread(target=maintenance_control)
+                thread_alive.start()
             elif not first_pkg and addr[0] != clients[cli_idx].ip_address:
                 """BAD IP_ADDRESS DETECTED"""
                 pdu = Pdu(REGISTER_NACK, '00000000000', '000000000000', '000000','Motiu rebuig: Equip ' + received_pdu.system_id + 'amb adreça ip incorrecta')
@@ -252,9 +257,7 @@ def attend_reg_requests():
 
 def maintenance_control():
     global sockfd_udp, clients, server_cfg
-    if debug == 1:
-        print_time("DEBUG =>  Creat fill per gestionar alives")
-    print_time("INFO  =>  Establert temporitzador per control alives")
+
     while True:
         data, addr = sockfd_udp.recvfrom(UDP_PKG_SIZE)
         received_pdu = convert_pkg_to_pdu(data)
@@ -354,13 +357,14 @@ def create_tcp_socket():
 
 
 if __name__ == '__main__':
-    # try:
-    main()
-# except KeyboardInterrupt as e:  # Ctrl-C
-#     raise e
-# except SystemExit as e:  # sys.exit()
-#     raise e
-# except Exception as e:
-#     print(f'ERROR, UNEXPECTED EXCEPTION')
-#     print(f'{str(e)}')
-#     sys.exit(-1)
+    try:
+        main()
+    except KeyboardInterrupt:
+        sys.exit('Program terminated by user')
+    except SystemExit:
+        sys.exit('Program terminated by sys.exit()')
+    except Exception as e:
+        print(f'ERROR: {str(e)}')
+        sys.exit('Program terminated with error')
+
+
