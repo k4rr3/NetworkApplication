@@ -9,7 +9,7 @@ DISCONNECTED = 0xA0
 WAIT_REG_RESPONSE = 0xA2
 WAIT_DB_CHECK = 0xA4
 REGISTERED = 0xA6
-SEND_ALIVE = 0xA8
+ALIVE = 0xA8
 
 REGISTER_REQ = 0x00
 REGISTER_ACK = 0x02
@@ -41,7 +41,7 @@ status_names = {
     WAIT_REG_RESPONSE: "WAIT_REG_RESPONSE",
     WAIT_DB_CHECK: "WAIT_DB_CHECK",
     REGISTERED: "REGISTERED",
-    SEND_ALIVE: "SEND_ALIVE"
+    ALIVE: "ALIVE"
 }
 
 pdu_types = {
@@ -189,11 +189,16 @@ def read_known_clients():
 
 
 def reg_and_alive():
+    #thread to wait input in terminal
     thread_cmnd = threading.Thread(target=read_command_line)
     thread_cmnd.start()
+    #thread to maintain alive phase
+    thread_alive = threading.Thread(target=maintenance_control)
+    thread_alive.start()
+
     while True:
-        received_pdu = attend_reg_requests()
-        maintenance_control(received_pdu)
+        #main thread
+        attend_reg_requests()
 
 
 def attend_reg_requests():
@@ -202,10 +207,10 @@ def attend_reg_requests():
     pdu = None
     data, addr = sockfd_udp.recvfrom(UDP_PKG_SIZE)
     received_pdu = convert_pkg_to_pdu(data)
-    print_time(f"DEBUG => Rebut: bytes={len(data)}, comanda={pdu_types[received_pdu.pdu_type]}, id={received_pdu.system_id}, mac={received_pdu.mac_address}, alea={received_pdu.alea}, dades={received_pdu.data}")
-    if pdu_types[received_pdu.pdu_type] == pdu_types[REGISTER_REQ]:
+    """CHECK IS RECEIVED PDU IS A REGISTER_REQ TYPE"""
+    if received_pdu.pdu_type == REGISTER_REQ:
+        print_time(f"DEBUG => Rebut: bytes={len(data)}, comanda={pdu_types[received_pdu.pdu_type]}, id={received_pdu.system_id}, mac={received_pdu.mac_address}, alea={received_pdu.alea}, dades={received_pdu.data}")
         cli_idx = is_known_client(received_pdu.system_id)
-
         if cli_idx == -1:
             """ CLIENT NOT AUTORIZED """
             pdu = Pdu(REGISTER_REJ, '00000000000', '000000000000', '000000','Motiu rebuig: Equip ' + received_pdu.system_id + ' no autoritzat')
@@ -243,8 +248,37 @@ def attend_reg_requests():
                 pdu = Pdu(REGISTER_NACK, '00000000000', '000000000000', '000000','Motiu rebuig: Equip ' + received_pdu.system_id + 'amb adreça ip incorrecta')
         if pdu is not None:
             sockfd_udp.sendto(pdu.convert_pdu_to_pkg(UDP_PKG_SIZE), addr)
-    else:
-        return received_pdu
+
+
+def maintenance_control():
+    global sockfd_udp, clients, server_cfg
+    if debug == 1:
+        print_time("DEBUG =>  Creat fill per gestionar alives")
+    print_time("INFO  =>  Establert temporitzador per control alives")
+    while True:
+        data, addr = sockfd_udp.recvfrom(UDP_PKG_SIZE)
+        received_pdu = convert_pkg_to_pdu(data)
+        if received_pdu.pdu_type == ALIVE_INF:
+            if debug == 1:
+                print_time( f"DEBUG => Rebut: bytes={UDP_PKG_SIZE}, comanda={pdu_types[received_pdu.pdu_type]}, id={received_pdu.system_id}, mac={received_pdu.mac_address}, alea={received_pdu.alea}, dades={received_pdu.data}")
+            cli_idx = is_known_client(received_pdu.system_id)
+            if cli_idx == -1:
+                pdu = Pdu(ALIVE_REJ, '00000000000', '000000000000', '000000','Motiu rebuig: Equip ' + received_pdu.system_id + 'no autoritzat o no registrat')
+                clients[cli_idx].status = status_names[DISCONNECTED]
+            elif addr[0] != clients[cli_idx].ip_address:
+                pdu = Pdu(ALIVE_NACK, '00000000000', '000000000000', '000000','Motiu rebuig: Adreça ip'+str(addr[0])+'incorrecta')
+                clients[cli_idx].status = status_names[DISCONNECTED]
+            elif not check_client_data(cli_idx, received_pdu):
+                pdu = Pdu(ALIVE_NACK, '00000000000', '000000000000', '000000', 'Motiu rebuig: Alea' + str(received_pdu.alea) + 'incorrecte')
+                clients[cli_idx].status = status_names[DISCONNECTED]
+            else:
+                pdu = Pdu(ALIVE_ACK, server_cfg.id, server_cfg.mac, received_pdu.alea,'')
+            if clients[cli_idx].status == "REGISTERED":
+                clients[cli_idx].status = status_names[ALIVE]
+            if debug == 1:
+                print_time( f"DEBUG =>  Enviat: bytes={UDP_PKG_SIZE}, comanda={pdu_types[pdu.pdu_type]}, id={server_cfg.id}, mac={server_cfg.mac}, alea={received_pdu.alea}, dades={pdu.data}")
+
+            sockfd_udp.sendto(pdu.convert_pdu_to_pkg(UDP_PKG_SIZE), addr)
 
 
 def read_command_line():
@@ -269,12 +303,6 @@ def read_command_line():
             print("Comanda no reconeguda")
 
 
-def maintenance_control(received_pdu):
-    global sockfd_udp, clients
-
-    pass
-
-
 def is_known_client(id):
     global clients
     for i in range(len(clients)):
@@ -284,6 +312,7 @@ def is_known_client(id):
 
 
 def check_client_data(client_index, received_pdu):
+    #checks id, mac and alea
     global clients
     return clients[client_index].id == received_pdu.system_id and clients[
         client_index].mac == received_pdu.mac_address and clients[client_index].alea == received_pdu.alea
@@ -297,22 +326,30 @@ def alea_generator():
 
 
 def create_udp_socket():
-    global server_cfg, debug
+    global server_cfg, debug, sockfd_udp
     server_ip = "127.0.0.1"
     sockfd_udp = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM)
-    sockfd_udp.bind((server_ip, int(server_cfg.udp_port)))
-    if debug == 1:
-        print_time('DEBUG =>  Socket UDP actiu')
+    try:
+        sockfd_udp.bind((server_ip, int(server_cfg.udp_port)))
+        if debug == 1:
+            print_time('DEBUG =>  Socket UDP actiu')
+    except:
+        print_time("WARN. =>  No es pot fer bind amb el socket UDP")
+        sys.exit(-1)
     return sockfd_udp
 
 
 def create_tcp_socket():
-    global server_cfg, debug
+    global server_cfg, debug, sockfd_tcp
     server_ip = "127.0.0.1"
     sockfd_tcp = socket.socket(family=socket.AF_INET, type=socket.SOCK_STREAM)
-    sockfd_tcp.bind((server_ip, int(server_cfg.tcp_port)))
-    if debug == 1:
-        print_time('DEBUG =>  Socket TCP actiu')
+    try:
+        sockfd_tcp.bind((server_ip, int(server_cfg.tcp_port)))
+        if debug == 1:
+            print_time('DEBUG =>  Socket TCP actiu')
+    except:
+        print_time("WARN. =>  No es pot fer bind amb el socket TCP")
+        sys.exit(-1)
     return sockfd_tcp
 
 
