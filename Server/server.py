@@ -40,7 +40,6 @@ GET_END = 0x3A
 R = 2
 J = 2
 S = 3
-# ...
 
 status_names = {
     DISCONNECTED: "DISCONNECTED",
@@ -76,18 +75,18 @@ pdu_types = {
 
 
 class Pdu:
-    def __init__(self, pdu_type, system_id, mac_address, alea, data):
-        self.type = pdu_type
-        self.system_id = system_id
-        self.mac_address = mac_address
+    def __init__(self, type, id, mac, alea, data):
+        self.type = type
+        self.id = id
+        self.mac = mac
         self.alea = alea
         self.data = data
 
     def convert_pdu_to_pkg(self, protocol_data_size):
         pdu = [chr(0)] * protocol_data_size
         pdu[0] = chr(self.type)
-        pdu[1: 1 + len(self.system_id)] = self.system_id
-        pdu[8:8 + len(self.mac_address)] = self.mac_address
+        pdu[1: 1 + len(self.id)] = self.id
+        pdu[8:8 + len(self.mac)] = self.mac
         pdu[21:21 + len(self.alea)] = self.alea
         pdu[28:28 + len(self.data)] = self.data
         pdu = ''.join(pdu).encode()
@@ -95,14 +94,14 @@ class Pdu:
 
 
 def convert_pkg_to_pdu(package):
-    system_id = str(package[1:7].decode()).replace('\x00', '')
-    mac_address = package[8:20].decode().replace('\x00', '')
+    id = str(package[1:7].decode()).replace('\x00', '')
+    mac = package[8:20].decode().replace('\x00', '')
     alea = package[21:28].decode().replace('\x00', '')
     try:
         data = package[29:].decode().replace('\x00', '')
     except:
         data = ''
-    return Pdu(package[0], system_id, mac_address, alea, data)
+    return Pdu(package[0], id, mac, alea, data)
 
 
 class Cfg:
@@ -119,7 +118,7 @@ class KnownDevice:
         self.mac = mac
         self.status = status
         self.alea = alea
-        self.ip_address = ip
+        self.ip = ip
         self.last_received = last_received
         self.non_received_alives = non_received_alives
 
@@ -127,7 +126,7 @@ class KnownDevice:
 devices_file = 'equips.dat'
 server_file = 'server.cfg'
 debug = 1
-server_cfg = None
+server = None
 clients = []
 UDP_PKG_SIZE = 78
 TCP_PKG_SIZE = 178
@@ -164,7 +163,7 @@ def read_args_cfg_files():
 
 
 def read_server_cfg():
-    global server_cfg, debug, server_file
+    global server, debug, server_file
     cfg = []
     server_cfg_file = open(server_file, "r")
     line = " "  # readline() returns an empty string, the end of the file has been reached,
@@ -174,7 +173,7 @@ def read_server_cfg():
         if line != '\n' and line != '':
             cfg.append(line.split())
             # server id   mac        udp_port    tcp_port
-    server_cfg = Cfg(cfg[0][1], cfg[1][1], cfg[2][1], cfg[3][1])
+    server = Cfg(cfg[0][1], cfg[1][1], cfg[2][1], cfg[3][1])
     # print(server_cfg.id, " ", server_cfg.mac, " ", server_cfg.udp_port, " ", server_cfg.tcp_port, "\n")
     if debug == 1:
         print_time("DEBUG =>  Llegits paràmetres línia de comandes ")
@@ -234,84 +233,72 @@ def service_loop():
 
 
 def register_phase(received_pdu, data, addr):
-    global UDP_PKG_SIZE, clients, pdu_types, server_cfg, sock_udp
-    first_pkg = False
-    pdu = None
-    print_time(
-        f"DEBUG => Rebut: bytes={len(data)}, comanda={pdu_types[received_pdu.type]}, id={received_pdu.system_id}, mac={received_pdu.mac_address}, alea={received_pdu.alea}, dades={received_pdu.data}")
-    i = is_known_client(received_pdu.system_id)  # get the index of the client if it's known
-    if i == -1 :
-        """ CLIENT NOT AUTORIZED """
-        pdu = Pdu(REGISTER_REJ, '00000000000', '000000000000', '000000',
-                  'Motiu rebuig: Equip ' + received_pdu.system_id + ' no autoritzat')
+    global UDP_PKG_SIZE, clients, pdu_types, server, sock_udp
+    if debug == 1:
+        print_time(f"DEBUG => Rebut: bytes={len(data)}, comanda={pdu_types[received_pdu.type]}, id={received_pdu.id}, mac={received_pdu.mac}, alea={received_pdu.alea}, dades={received_pdu.data}")
 
-    elif (clients[i].status == 'REGISTERED' or clients[i].status == 'ALIVE') and check_client_data(
-            i, received_pdu):
-        """CLIENT REGISTERED OR ALIVE"""
+    i = is_known_client(received_pdu.id)  # get the index of the client, if it's known
+    if i == -1:
+        pdu = Pdu(REGISTER_REJ, '', '000000000000', '000000','Equip ' + received_pdu.id + ' no autoritzat')
+
+    elif (clients[i].status == 'REGISTERED' or clients[i].status == 'ALIVE') and check_client_data(i, received_pdu):
         clients[i].last_received = datetime.now()  # saving register time
         clients[i].non_received_alives = 0  # reset the number of non_received_alives to 0
-        pdu = Pdu(REGISTER_ACK, clients[i].id, clients[i].mac, clients[i].alea,server_cfg.tcp_port)
-        print_time(f"INFO  =>  Acceptat registre duplicat. Equip: id={clients[i].id}, ip={clients[i].ip_address}, mac={clients[i].mac} alea={received_pdu.alea}")
+        pdu = Pdu(REGISTER_ACK, clients[i].id, clients[i].mac, clients[i].alea, server.tcp_port)
+        print_time(f"INFO  =>  Acceptat registre duplicat. Equip: id={clients[i].id}, ip={clients[i].ip}, mac={clients[i].mac} alea={received_pdu.alea}")
         print_time(f"MSG.  =>  Equip Sw-001 passa a estat:{status_names[REGISTERED]}")
-        if debug == 1:
-            print_time(
-                f"DEBUG =>  Enviat: bytes={UDP_PKG_SIZE}, comanda={pdu_types[pdu.type]}, id={server_cfg.id}, mac={server_cfg.mac}, alea={received_pdu.alea}, dades={pdu.data}")
-    elif clients[i].status == "DISCONNECTED":
+
+    elif clients[i].status == "DISCONNECTED" or clients[i].status == "WAIT_DB_CHECK":
         if (received_pdu.alea != '000000' and clients[i].alea is not None and received_pdu.alea != clients[i].alea) or received_pdu.alea != "000000":
-            """BAD ALEA DETECTED"""
-            pdu = Pdu(REGISTER_NACK, '00000000000', '000000000000', '000000',
-                      'Motiu rebuig: Equip ' + received_pdu.system_id + ' alea incorrecte')
+            pdu = Pdu(REGISTER_NACK, '', '000000000000', '000000','Error en dades de registre')
+            clients[i].status = status_names[WAIT_DB_CHECK]
+            print_time('MSG.  =>  Equip Sw-001 passa a estat:' + status_names[WAIT_DB_CHECK])
+            print_time(f"INFO  =>  Rebutjat registre. Equip: id={clients[i].id}, ip={addr[0]}, mac={clients[i].mac} alea={received_pdu.alea} (alea incorrecte)")
 
         elif received_pdu.alea == '000000':
-            """REGISTERING CLIENT..."""
-            clients[i].status = status_names[WAIT_REG_RESPONSE]
-            print_time('MSG.  =>  Equip Sw-001 passa a estat:' + status_names[WAIT_REG_RESPONSE])
+            clients[i].status = status_names[WAIT_DB_CHECK]
+            print_time('MSG.  =>  Equip Sw-001 passa a estat:' + status_names[WAIT_DB_CHECK])
             clients[i].alea = alea_generator()
-            pdu = Pdu(REGISTER_ACK, server_cfg.id, server_cfg.mac, clients[i].alea, server_cfg.tcp_port)
-            clients[i].ip_address = addr[0]
-            clients[i].status = status_names[REGISTERED]
+            pdu = Pdu(REGISTER_ACK, server.id, server.mac, clients[i].alea, server.tcp_port)
+            clients[i].ip = addr[0]
             clients[i].last_received = datetime.now()  # saving register time
-            print_time('INFO  =>  Acceptat registre. Equip: id=' + clients[i].id + ', ip=' + clients[
-                i].ip_address + ', mac=' + clients[i].mac + ' alea=' + received_pdu.alea)
+            clients[i].status = status_names[REGISTERED]
+            print_time('INFO  =>  Acceptat registre. Equip: id=' + clients[i].id + ', ip=' + clients[i].ip + ', mac=' + clients[i].mac + ' alea=' + received_pdu.alea)
             print_time('MSG.  =>  Equip Sw-001 passa a estat:' + status_names[REGISTERED])
-            if debug == 1:
-                print_time(
-                    f"DEBUG =>  Enviat: bytes={UDP_PKG_SIZE}, comanda={pdu_types[pdu.type]}, id={server_cfg.id}, mac={server_cfg.mac}, alea={received_pdu.alea}, dades={pdu.data}")
-            first_pkg = False
-        elif not first_pkg and addr[0] != clients[i].ip_address:
-            """BAD IP_ADDRESS DETECTED"""
-            pdu = Pdu(REGISTER_NACK, '00000000000', '000000000000', '000000',
-                      'Motiu rebuig: Equip ' + received_pdu.system_id + 'amb adreça ip incorrecta')
-    if pdu is not None:
-        sock_udp.sendto(pdu.convert_pdu_to_pkg(UDP_PKG_SIZE), addr)
+
+        elif addr[0] != clients[i].ip:
+            pdu = Pdu(REGISTER_NACK, '', '000000000000', '000000','Equip ' + received_pdu.id + 'amb adreça ip incorrecta')
+    if debug == 1:
+        print_time(f"DEBUG =>  Enviat: bytes={UDP_PKG_SIZE}, comanda={pdu_types[pdu.type]}, id={pdu.id}, mac={pdu.mac}, alea={pdu.alea}, dades={pdu.data}")
+
+    sock_udp.sendto(pdu.convert_pdu_to_pkg(UDP_PKG_SIZE), addr)
 
 
 def alive_phase(received_pdu, addr):
-    global sock_udp, clients, server_cfg
+    global sock_udp, clients, server
     if debug == 1:
-        print_time(
-            f"DEBUG => Rebut: bytes={UDP_PKG_SIZE}, comanda={pdu_types[received_pdu.type]}, id={received_pdu.system_id}, mac={received_pdu.mac_address}, alea={received_pdu.alea}, dades={received_pdu.data}")
-    i = is_known_client(received_pdu.system_id)  # get the index of the client if it's known
+        print_time( f"DEBUG => Rebut: bytes={UDP_PKG_SIZE}, comanda={pdu_types[received_pdu.type]}, id={received_pdu.id}, mac={received_pdu.mac}, alea={received_pdu.alea}, dades={received_pdu.data}")
+    i = is_known_client(received_pdu.id)  # get the index of the client if it's known
     clients[i].last_received = datetime.now()  # saving last alive time reception
     clients[i].non_received_alives = 0 # when ALIVE_INF is received, counter is reset to 0
     if i == -1 or clients[i].status == "DISCONNECTED":
-        pdu = Pdu(ALIVE_REJ, '', '000000000000', '000000','Motiu rebuig: Error enviament ALIVE (equip no registrat)')
+        pdu = Pdu(ALIVE_REJ, '', '000000000000', '000000','Error enviament ALIVE (equip no registrat)')
         clients[i].status = status_names[DISCONNECTED]
-    elif addr[0] != clients[i].ip_address:
+    elif addr[0] != clients[i].ip:
         pdu = Pdu(ALIVE_NACK, '', '000000000000', '000000',
-                  'Motiu rebuig: Adreça ip' + str(addr[0]) + 'incorrecta')
+                  'Adreça ip' + str(addr[0]) + 'incorrecta')
         clients[i].status = status_names[DISCONNECTED]
     elif not check_client_data(i, received_pdu):
         pdu = Pdu(ALIVE_NACK, '', '000000000000', '000000',
-                  'Motiu rebuig: Alea' + str(received_pdu.alea) + 'incorrecte')
+                  'Alea' + str(received_pdu.alea) + 'incorrecte')
         clients[i].status = status_names[DISCONNECTED]
     else:
-        pdu = Pdu(ALIVE_ACK, server_cfg.id, server_cfg.mac, received_pdu.alea, '')
+        pdu = Pdu(ALIVE_ACK, server.id, server.mac, received_pdu.alea, '')
+        print_time(f"INFO  =>  Acceptat ALIVE. Equip: id={received_pdu.id}, ip={addr[0]}, mac={received_pdu.mac} alea={received_pdu.alea}")
     if clients[i].status == "REGISTERED":
         clients[i].status = status_names[ALIVE]
     if debug == 1:
-        print_time(
-            f"DEBUG =>  Enviat: bytes={UDP_PKG_SIZE}, comanda={pdu_types[pdu.type]}, id={server_cfg.id}, mac={server_cfg.mac}, alea={received_pdu.alea}, dades={pdu.data}")
+        print_time( f"DEBUG =>  Enviat: bytes={UDP_PKG_SIZE}, comanda={pdu_types[pdu.type]}, id={server.id}, mac={server.mac}, alea={received_pdu.alea}, dades={pdu.data}")
 
     sock_udp.sendto(pdu.convert_pdu_to_pkg(UDP_PKG_SIZE), addr)
 
@@ -325,7 +312,7 @@ def read_command_line():
             for cli in clients:
                 ip_addr_alea = ''
                 if cli.status == "REGISTERED" or cli.status == "SEND_ALIVE":
-                    ip_addr_alea = cli.ip_address + "\t\t" + cli.alea
+                    ip_addr_alea = cli.ip + "\t\t" + cli.alea
                 print(f"\t\t" + str(cli.id) + "\t" + str(cli.mac) + "\t" + cli.status + "\t\t" + ip_addr_alea)
         elif command == 'quit':
             if debug == 1:
@@ -334,7 +321,7 @@ def read_command_line():
 
             sys.exit(0)
         else:
-            print("Comanda no reconeguda")
+            print_time("MSG.  =>  Comanda incorrecta")
 
 
 def check_timeout():
@@ -343,11 +330,14 @@ def check_timeout():
     for client in clients:
         if (client.last_received is not None and client.status == "REGISTERED" and (current_date - client.last_received).total_seconds() > R * J) or (client.status == "ALIVE" and client.non_received_alives == S):
             client.status = "DISCONNECTED"
-            print_time(client.id + " pasa a l'estat DISCONNECTED")
+            if client.non_received_alives == S:
+                print_time(f"MSG.  =>  Equip {client.id} passa a estat: DISCONNECTED (No s'han rebut 3 ALIVES consecutius)")
+            else:
+                print_time(f"MSG.  =>  Equip {client.id} passa a estat: DISCONNECTED (No s'han rebut primer ALIVE en 4 segons)")
+
         elif client.status == "ALIVE" and (current_date - client.last_received).total_seconds() >= R:
             client.last_received = current_date
             client.non_received_alives += 1
-            print("NON CONFIRM + 1")
 
 
 def is_known_client(id):
@@ -358,11 +348,10 @@ def is_known_client(id):
     return -1
 
 
-def check_client_data(client_index, received_pdu):
+def check_client_data(index, pdu):
     # checks id, mac and alea
     global clients
-    return clients[client_index].id == received_pdu.system_id and clients[
-        client_index].mac == received_pdu.mac_address and clients[client_index].alea == received_pdu.alea
+    return clients[index].id == pdu.id and clients[index].mac == pdu.mac and clients[index].alea == pdu.alea
 
 
 def alea_generator():
@@ -373,11 +362,11 @@ def alea_generator():
 
 
 def create_udp_socket():
-    global server_cfg, debug, sock_udp
+    global server, debug, sock_udp
     server_ip = "127.0.0.1"
     sock_udp = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM)
     try:
-        sock_udp.bind((server_ip, int(server_cfg.udp_port)))
+        sock_udp.bind((server_ip, int(server.udp_port)))
         if debug == 1:
             print_time('DEBUG =>  Socket UDP actiu')
     except:
@@ -387,11 +376,11 @@ def create_udp_socket():
 
 
 def create_tcp_socket():
-    global server_cfg, debug, sock_tcp
+    global server, debug, sock_tcp
     server_ip = "127.0.0.1"
     sock_tcp = socket.socket(family=socket.AF_INET, type=socket.SOCK_STREAM)
     try:
-        sock_tcp.bind((server_ip, int(server_cfg.tcp_port)))
+        sock_tcp.bind((server_ip, int(server.tcp_port)))
         sock_tcp.listen(300)
         if debug == 1:
             print_time('DEBUG =>  Socket TCP actiu')
@@ -405,7 +394,9 @@ if __name__ == '__main__':
     try:
         main()
     except KeyboardInterrupt:
-        sys.exit('Program terminated by user')
+        if debug == 1:
+            print_time("DEBUG =>  Finalització per ^C")
+        sys.exit()
     except SystemExit:
         sys.exit('Program terminated by sys.exit()')
     except Exception as e:

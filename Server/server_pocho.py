@@ -123,7 +123,7 @@ class KnownDevice:
 devices_file = 'equips.dat'
 server_file = 'server.cfg'
 debug = 1
-server_cfg = None
+server = None
 clients = []
 UDP_PKG_SIZE = 78
 TCP_PKG_SIZE = 178
@@ -160,7 +160,7 @@ def read_args_cfg_files():
 
 
 def read_server_cfg():
-    global server_cfg, debug, server_file
+    global server, debug, server_file
     cfg = []
     server_cfg_file = open(server_file, "r")
     line = " "  # readline() returns an empty string, the end of the file has been reached,
@@ -206,7 +206,7 @@ def reg_and_alive():
 
 
 def attend_reg_requests():
-    global UDP_PKG_SIZE, clients, pdu_types, server_cfg, sock_udp
+    global UDP_PKG_SIZE, clients, pdu_types, server, sock_udp
     first_pkg = False
     pdu = None
     try:
@@ -277,7 +277,7 @@ def attend_reg_requests():
 
 
 def maintenance_control(cli_idx, received_pdu):
-    global sock_udp, clients, server_cfg
+    global sock_udp, clients, server
     non_recv_alives = 0
     while True:
         current_time = datetime.now()
@@ -368,7 +368,7 @@ def alea_generator():
 
 
 def create_udp_socket():
-    global server_cfg, debug, sock_udp
+    global server, debug, sock_udp
     server_ip = "127.0.0.1"
     sockfd_udp = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM)
     #sockfd_udp.setblocking(False)
@@ -384,7 +384,7 @@ def create_udp_socket():
 
 
 def create_tcp_socket():
-    global server_cfg, debug, sock_tcp
+    global server, debug, sock_tcp
     server_ip = "127.0.0.1"
     sockfd_tcp = socket.socket(family=socket.AF_INET, type=socket.SOCK_STREAM)
     try:
