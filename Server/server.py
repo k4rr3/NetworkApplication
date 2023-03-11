@@ -190,8 +190,6 @@ def read_known_clients():
             cfg.append(line.split())
             clients.append(KnownDevice(cfg[0][0], cfg[0][1], None, None, status_names[DISCONNECTED], None, 0))
             cfg.pop()
-    # for i in range(0, len(clients)):
-    #     print(clients[i].id, " ", clients[i].mac)
     print_time("INFO  =>  Llegits 9 equips autoritzats en el sistema")
 
 
@@ -284,21 +282,21 @@ def alive_phase(received_pdu, addr):
     if i == -1 or clients[i].status == "DISCONNECTED":
         pdu = Pdu(ALIVE_REJ, '', '000000000000', '000000','Error enviament ALIVE (equip no registrat)')
         clients[i].status = status_names[DISCONNECTED]
+        print_time(f"INFO  =>  Rebutjat ALIVE (equip no registrat). Equip: id={clients[i].id}, ip={addr[0]}, mac={clients[i].mac} alea={clients[i].alea}")
     elif addr[0] != clients[i].ip:
-        pdu = Pdu(ALIVE_NACK, '', '000000000000', '000000',
-                  'Adreça ip' + str(addr[0]) + 'incorrecta')
+        pdu = Pdu(ALIVE_NACK, '', '000000000000', '000000','Adreça ip' + str(addr[0]) + 'incorrecta')
         clients[i].status = status_names[DISCONNECTED]
     elif not check_client_data(i, received_pdu):
-        pdu = Pdu(ALIVE_NACK, '', '000000000000', '000000',
-                  'Alea' + str(received_pdu.alea) + 'incorrecte')
-        clients[i].status = status_names[DISCONNECTED]
+        pdu = Pdu(ALIVE_NACK, '', '000000000000', '000000','Error enviament ALIVE (dades equip incorrectes)')
+        print_time(f"INFO  =>  Error recepció ALIVE. Equip: id={received_pdu.id}, ip={addr[0]}, mac={received_pdu.mac} alea={received_pdu.alea} (Registrat: id={clients[i].id}, ip={clients[i].ip}, mac={clients[i].ip} alea={clients[i].alea})")
     else:
         pdu = Pdu(ALIVE_ACK, server.id, server.mac, received_pdu.alea, '')
         print_time(f"INFO  =>  Acceptat ALIVE. Equip: id={received_pdu.id}, ip={addr[0]}, mac={received_pdu.mac} alea={received_pdu.alea}")
     if clients[i].status == "REGISTERED":
+        print_time(f"MSG.  =>  Equip {clients[i].id} passa a estat: SEND_ALIVE")
         clients[i].status = status_names[ALIVE]
     if debug == 1:
-        print_time( f"DEBUG =>  Enviat: bytes={UDP_PKG_SIZE}, comanda={pdu_types[pdu.type]}, id={server.id}, mac={server.mac}, alea={received_pdu.alea}, dades={pdu.data}")
+        print_time( f"DEBUG =>  Enviat: bytes={UDP_PKG_SIZE}, comanda={pdu_types[pdu.type]}, id={pdu.id}, mac={pdu.mac}, alea={pdu.alea}, dades={pdu.data}")
 
     sock_udp.sendto(pdu.convert_pdu_to_pkg(UDP_PKG_SIZE), addr)
 
