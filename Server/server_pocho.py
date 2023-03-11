@@ -127,12 +127,12 @@ server_cfg = None
 clients = []
 UDP_PKG_SIZE = 78
 TCP_PKG_SIZE = 178
-sockfd_udp = -1
-sockfd_tcp = -1
+sock_udp = -1
+sock_tcp = -1
 
 
 def main():
-    global sockfd_udp, sockfd_tcp
+    global sock_udp, sock_tcp
     read_server_cfg()
     read_known_clients()
     read_args_cfg_files()
@@ -206,7 +206,7 @@ def reg_and_alive():
 
 
 def attend_reg_requests():
-    global UDP_PKG_SIZE, clients, pdu_types, server_cfg, sockfd_udp
+    global UDP_PKG_SIZE, clients, pdu_types, server_cfg, sock_udp
     first_pkg = False
     pdu = None
     try:
@@ -277,7 +277,7 @@ def attend_reg_requests():
 
 
 def maintenance_control(cli_idx, received_pdu):
-    global sockfd_udp, clients, server_cfg
+    global sock_udp, clients, server_cfg
     non_recv_alives = 0
     while True:
         current_time = datetime.now()
@@ -368,7 +368,7 @@ def alea_generator():
 
 
 def create_udp_socket():
-    global server_cfg, debug, sockfd_udp
+    global server_cfg, debug, sock_udp
     server_ip = "127.0.0.1"
     sockfd_udp = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM)
     #sockfd_udp.setblocking(False)
@@ -384,7 +384,7 @@ def create_udp_socket():
 
 
 def create_tcp_socket():
-    global server_cfg, debug, sockfd_tcp
+    global server_cfg, debug, sock_tcp
     server_ip = "127.0.0.1"
     sockfd_tcp = socket.socket(family=socket.AF_INET, type=socket.SOCK_STREAM)
     try:
