@@ -125,7 +125,7 @@ class KnownDevice:
 
 devices_file = 'equips.dat'
 server_file = 'server.cfg'
-debug = 1
+debug = 0
 server = None
 clients = []
 UDP_PKG_SIZE = 78
@@ -207,7 +207,7 @@ def service_loop():
         for r in readable:
             # Handle input from stdin
             if r is sys.stdin:
-                thread_cmnd = threading.Thread(target=read_command_line)
+                thread_cmnd = threading.Thread(target=command_line_phase)
                 thread_cmnd.start()
 
             # Handle input from UDP socket
@@ -226,10 +226,10 @@ def service_loop():
             # Handle input from TCP socket
             elif r is sock_tcp:
                 conn, addr = r.accept()
-                print('Received TCP connection from {}:{}'.format(addr[0], addr[1]))
-                conn.close()
-
-
+                tcp_thread = threading.Thread(target=tcp_phase, args=(conn, addr))
+                tcp_thread.start()
+                tcp_thread.join()
+                #conn.close()
 def register_phase(received_pdu, data, addr):
     global UDP_PKG_SIZE, clients, pdu_types, server, sock_udp
     if debug == 1:
@@ -301,7 +301,48 @@ def alive_phase(received_pdu, addr):
     sock_udp.sendto(pdu.convert_pdu_to_pkg(UDP_PKG_SIZE), addr)
 
 
-def read_command_line():
+def tcp_phase(conn, addr):
+    global sock_tcp, clients
+    received_tcp = conn.recv(TCP_PKG_SIZE)
+    pdu = convert_pkg_to_pdu(received_tcp)
+    print(pdu.type, pdu.id, pdu.data, pdu_types[pdu.type])
+    i = is_known_client(pdu.id)
+    if i != -1 and check_client_data(i, pdu):
+        if pdu.type == SEND_FILE:
+            if check_client_data(i, pdu):
+                print("client vol enviar arxiu")
+                tcp_pdu = Pdu(SEND_ACK, server.id, server.mac, clients[i].alea, clients[i].id+".cfg")
+                sock_tcp.send(tcp_pdu.convert_pdu_to_pkg(UDP_PKG_SIZE), addr)
+            elif clients[i].ip != addr[0] or clients[i].alea != pdu.alea:
+                tcp_pdu = Pdu(SEND_NACK, '', '000000000000', '000000', 'Dades addicionals de l’equip incorrectes')
+                sock_tcp.send(tcp_pdu.convert_pdu_to_pkg(TCP_PKG_SIZE), addr)
+                conn.close()
+            #Aquest paquet també es pot enviar si arriba una petició d’un equip que ja està
+            #efectuant una operació amb el seu arxiu de configuració (put o get).
+            elif clients[i].id != pdu.id or clients[i].mac != pdu.mac:
+                tcp_pdu = Pdu(SEND_REJ, '', '000000000000', '000000', 'Discrepància amb les dades principals de l’equip')
+                sock_tcp.send(tcp_pdu.convert_pdu_to_pkg(TCP_PKG_SIZE), addr)
+                conn.close()
+        elif pdu.type == GET_FILE:
+            print("client vol rebre arxiu")
+            if check_client_data(i, pdu):
+                print("client vol enviar arxiu")
+                tcp_pdu = Pdu(GET_ACK, server.id, server.mac, clients[i].alea, clients[i].id+".cfg")
+                sock_tcp.send(tcp_pdu.convert_pdu_to_pkg(UDP_PKG_SIZE), addr)
+            elif clients[i].ip != addr[0] or clients[i].alea != pdu.alea:
+                tcp_pdu = Pdu(GET_NACK, '', '000000000000', '000000', 'Dades addicionals de l’equip incorrectes')
+                sock_tcp.send(tcp_pdu.convert_pdu_to_pkg(TCP_PKG_SIZE), addr)
+                conn.close()
+            #Aquest paquet també es pot enviar si arriba una petició d’un equip que ja està
+            #efectuant una operació amb el seu arxiu de configuració (put o get).
+            elif clients[i].id != pdu.id or clients[i].mac != pdu.mac:
+                tcp_pdu = Pdu(GET_REJ, '', '000000000000', '000000', 'Discrepància amb les dades principals de l’equip')
+                sock_tcp.send(tcp_pdu.convert_pdu_to_pkg(TCP_PKG_SIZE), addr)
+                conn.close()
+            conn.close()
+
+
+def command_line_phase():
     global clients, status_names
     while True:
         command = input()
@@ -379,7 +420,7 @@ def create_tcp_socket():
     sock_tcp = socket.socket(family=socket.AF_INET, type=socket.SOCK_STREAM)
     try:
         sock_tcp.bind((server_ip, int(server.tcp_port)))
-        sock_tcp.listen(300)
+        sock_tcp.listen(5)# number inside defines how many connection requests could be in the queue
         if debug == 1:
             print_time('DEBUG =>  Socket TCP actiu')
     except:
@@ -394,6 +435,8 @@ if __name__ == '__main__':
     except KeyboardInterrupt:
         if debug == 1:
             print_time("DEBUG =>  Finalització per ^C")
+        sock_udp.close()
+        sock_tcp.close()
         sys.exit()
     except SystemExit:
         sys.exit('Program terminated by sys.exit()')
