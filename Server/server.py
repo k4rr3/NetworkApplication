@@ -325,19 +325,24 @@ def tcp_phase(conn, addr):
             if debug == 1:
                 print_time(f"DEBUG =>  Enviat: bytes={TCP_SIZE}, comanda={pdu_types[tcp_pdu.type]}, id={tcp_pdu.id}, mac={tcp_pdu.mac}, alea={tcp_pdu.alea}  dades={tcp_pdu.data}")
             pdu = convert_pkg_to_pdu(conn.recv(TCP_SIZE))
-            last_tcp = datetime.now()
             f = open(clients[i].id + ".cfg", "w")
-            while pdu.type == SEND_DATA and not (datetime.now() - last_tcp).total_seconds() > W:
-                pdu = convert_pkg_to_pdu(conn.recv(TCP_SIZE))
-                if debug == 1:
-                    print_time(
-                        f"DEBUG =>  Rebut: bytes={TCP_SIZE}, comanda={pdu_types[pdu.type]}, id={pdu.id}, mac={pdu.mac}, alea={pdu.alea}  dades={pdu.data}\n")
-                last_tcp = datetime.now()
+            last_tcp = datetime.now()
+
+            while pdu.type == SEND_DATA:
+                readable, _, _ = select.select([sock_tcp], [], [], W)
+                if len(readable) != 0:
+                    pdu = convert_pkg_to_pdu(conn.recv(TCP_SIZE))
+                    last_tcp = datetime.now()
+                    if debug == 1:
+                        print_time(
+                            f"DEBUG =>  Rebut: bytes={TCP_SIZE}, comanda={pdu_types[pdu.type]}, id={pdu.id}, mac={pdu.mac}, alea={pdu.alea}  dades={pdu.data}\n")
+                elif (datetime.now() - last_tcp).total_seconds() >= W:
+                    print_time(f"ALERT =>  No s'ha rebut informació per el canal TCP durant {W} segons")
+                    break
                 if pdu.type != SEND_END:
                     f.write(pdu.data + "\n")
             f.close()
-            print_time(
-                f"MSG.  =>  Finalitzat enviament arxiu configuració. Equip: id={clients[i].id}, ip={addr[0]}, mac={pdu.mac} alea={pdu.alea}")
+            print_time(f"MSG.  =>  Finalitzat enviament arxiu configuració. Equip: id={clients[i].id}, ip={addr[0]}, mac={pdu.mac} alea={pdu.alea}")
             if debug == 1:
                 print_time("DEBUG =>  Finalitzat el procés que atenia a un client TCP")
             clients[i].is_transfering_files = False
@@ -348,6 +353,7 @@ def tcp_phase(conn, addr):
                 print_time(f"DEBUG =>  Enviat: bytes={TCP_SIZE}, comanda={pdu_types[tcp_pdu.type]}, id={tcp_pdu.id}, mac={tcp_pdu.mac}, alea={tcp_pdu.alea}  dades={tcp_pdu.data}")
             conn.send(tcp_pdu.convert_pdu_to_pkg(TCP_SIZE))
             conn.close()
+        #some stuff not working well if the above elif is swaped with this other -> \n
         elif clients[i].ip != addr[0] or clients[i].alea != pdu.alea or clients[i].is_transfering_files:
             tcp_pdu = Pdu(SEND_NACK, '', '000000000000', '000000', 'Rebutjat paquet TCP tipus: SEND_FILE (Dades addicionals de l’equip incorrectes)')
             if debug == 1:
@@ -388,14 +394,23 @@ def tcp_phase(conn, addr):
                 print_time("DEBUG =>  Finalitzat el procés que atenia a un client TCP")
             clients[i].is_transfering_files = False
             conn.close()
-        elif clients[i].ip != addr[0] or clients[i].alea != pdu.alea:
-            tcp_pdu = Pdu(GET_NACK, '', '000000000000', '000000', 'Dades addicionals de l’equip incorrectes')
+        #Aquest paquet també s’enviarà si en el servidor no existeix cap arxiu de configuració de l’equip.
+        elif clients[i].id != pdu.id or clients[i].mac != pdu.mac :
+            tcp_pdu = Pdu(GET_REJ, '', '000000000000', '000000', 'Rebutjat paquet TCP tipus: GET_FILE (Equip no autoritzat)')
+            print_time("INFO  =>  Denegat paquet TCP tipus: GET_FILE (Error dades equip)")
+            if debug == 1:
+                print_time(f"DEBUG =>  Enviat: bytes={TCP_SIZE}, comanda={pdu_types[tcp_pdu.type]}, id={tcp_pdu.id}, mac={tcp_pdu.mac}, alea={tcp_pdu.alea}  dades={tcp_pdu.data}")
+
             conn.send(tcp_pdu.convert_pdu_to_pkg(TCP_SIZE))
             conn.close()
         # Aquest paquet també es pot enviar si arriba una petició d’un equip que ja està
         # efectuant una operació amb el seu arxiu de configuració (put o get).
-        elif clients[i].id != pdu.id or clients[i].mac != pdu.mac:
-            tcp_pdu = Pdu(GET_REJ, '', '000000000000', '000000', 'Discrepància amb les dades principals de l’equip')
+
+        elif clients[i].ip != addr[0] or clients[i].alea != pdu.alea or clients[i].is_transfering_files:
+            tcp_pdu = Pdu(GET_NACK, '', '000000000000', '000000', 'Rebutjat paquet TCP tipus: GET_FILE (Dades addicionals de l’equip incorrectes)')
+
+            if debug == 1:
+                print_time(f"DEBUG =>  Enviat: bytes={TCP_SIZE}, comanda={pdu_types[tcp_pdu.type]}, id={tcp_pdu.id}, mac={tcp_pdu.mac}, alea={tcp_pdu.alea}  dades={tcp_pdu.data}")
             conn.send(tcp_pdu.convert_pdu_to_pkg(TCP_SIZE))
             conn.close()
         conn.close()
