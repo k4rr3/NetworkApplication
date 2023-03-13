@@ -315,7 +315,7 @@ def tcp_phase(conn, addr):
     pdu = convert_pkg_to_pdu(conn.recv(TCP_SIZE))
     if debug == 1:
         print_time(
-            f"DEBUG =>  Rebut: bytes={TCP_SIZE}, comanda={pdu.type}, id={pdu.id}, mac={pdu.mac}, alea={pdu.alea}  dades={pdu.data}")
+            f"DEBUG =>  Rebut: bytes={TCP_SIZE}, comanda={pdu_types[pdu.type]}, id={pdu.id}, mac={pdu.mac}, alea={pdu.alea}  dades={pdu.data}")
     i = is_known_client(pdu.id)
     if i != -1:
         if pdu.type == SEND_FILE:
@@ -364,11 +364,13 @@ def tcp_phase(conn, addr):
                         tcp_pdu = Pdu(GET_DATA, server.id, server.mac, clients[i].alea, line)
                     else:
                         tcp_pdu = Pdu(GET_END, server.id, server.mac, clients[i].alea, '')
+                        if debug == 1:
+                            print_time(f"DEBUG =>  Enviat: bytes={TCP_SIZE}, comanda={pdu_types[tcp_pdu.type]}, id={tcp_pdu.id}, mac={tcp_pdu.mac}, alea={tcp_pdu.alea}  dades={tcp_pdu.data}\n")
                         conn.send(tcp_pdu.convert_pdu_to_pkg(TCP_SIZE))
                         break
                     conn.send(tcp_pdu.convert_pdu_to_pkg(TCP_SIZE))
                     if debug == 1:
-                        print_time(f"DEBUG =>  Enviat: bytes={TCP_SIZE}, comanda={pdu_types[tcp_pdu.type]}, id={tcp_pdu.id}, mac={tcp_pdu.mac}, alea={tcp_pdu.alea}  dades={tcp_pdu.data}\n")
+                        print_time(f"DEBUG =>  Enviat: bytes={TCP_SIZE}, comanda={pdu_types[tcp_pdu.type]}, id={tcp_pdu.id}, mac={tcp_pdu.mac}, alea={tcp_pdu.alea}  dades={tcp_pdu.data}")
 
                 f.close()
                 print_time(f"MSG.  =>  Finalitzat enviament arxiu configuració. Equip: id={clients[i].id}, ip={addr[0]}, mac={pdu.mac} alea={pdu.alea}")
@@ -387,7 +389,7 @@ def tcp_phase(conn, addr):
                 conn.send(tcp_pdu.convert_pdu_to_pkg(TCP_SIZE))
                 conn.close()
             conn.close()
-#send-cfg
+#send-cfg get-cfg
 
 def command_line_phase():
     global clients, status_names
