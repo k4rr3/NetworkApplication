@@ -40,7 +40,7 @@ GET_END = 0x3A
 R = 2
 J = 2
 S = 3
-
+W = 3
 status_names = {
     DISCONNECTED: "DISCONNECTED",
     WAIT_REG_RESPONSE: "WAIT_REG_RESPONSE",
@@ -82,8 +82,8 @@ class Pdu:
         self.alea = alea
         self.data = data
 
-    def convert_pdu_to_pkg(self, protocol_data_size):
-        pdu = [chr(0)] * protocol_data_size
+    def convert_pdu_to_pkg(self, pkg_size):
+        pdu = [chr(0)] * pkg_size
         pdu[0] = chr(self.type)
         pdu[1: 1 + len(self.id)] = self.id
         pdu[8:8 + len(self.mac)] = self.mac
@@ -94,16 +94,20 @@ class Pdu:
 
 
 def convert_pkg_to_pdu(package):
-    id = str(package[1:7].decode()).replace('\x00', '')
-    mac = package[8:20].decode().replace('\x00', '')
-    alea = package[21:28].decode().replace('\x00', '')
+    id = str(package[1:7].decode()).rstrip('\x00')
+    mac = package[8:20].decode().rstrip('\x00')
+    alea = package[21:28].decode().rstrip('\x00')
     try:
-        data = package[29:].decode().replace('\x00', '')
+        data = package[28:].decode().rstrip('\x00')
     except:
-        data = ''
+        data = ""
+        for i in package[28:]:
+            if chr(i) == '\n' or chr(i) == '\x00':
+                break
+            data = data + chr(i)
     return Pdu(package[0], id, mac, alea, data)
 
-
+#send-cfg
 class Cfg:
     def __init__(self, id, mac, udp_port, tcp_port):
         self.id = id
@@ -113,7 +117,7 @@ class Cfg:
 
 
 class KnownDevice:
-    def __init__(self, id, mac, alea, ip, status, last_received, non_received_alives):
+    def __init__(self, id, mac, alea, ip, status, last_received, non_received_alives, is_transfering_files):
         self.id = id
         self.mac = mac
         self.status = status
@@ -121,15 +125,16 @@ class KnownDevice:
         self.ip = ip
         self.last_received = last_received
         self.non_received_alives = non_received_alives
+        self.is_transfering_files = is_transfering_files
 
 
 devices_file = 'equips.dat'
 server_file = 'server.cfg'
-debug = 0
+debug = 1
 server = None
 clients = []
-UDP_PKG_SIZE = 78
-TCP_PKG_SIZE = 178
+UDP_SIZE = 78
+TCP_SIZE = 178
 sock_udp = -1
 sock_tcp = -1
 
@@ -188,7 +193,7 @@ def read_known_clients():
         line = equips_dat_file.readline()
         if line != '\n' and line != '':
             cfg.append(line.split())
-            clients.append(KnownDevice(cfg[0][0], cfg[0][1], None, None, status_names[DISCONNECTED], None, 0))
+            clients.append(KnownDevice(cfg[0][0], cfg[0][1], None, None, status_names[DISCONNECTED], None, 0, False))
             cfg.pop()
     print_time("INFO  =>  Llegits 9 equips autoritzats en el sistema")
 
@@ -212,7 +217,7 @@ def service_loop():
 
             # Handle input from UDP socket
             elif r is sock_udp:
-                data, addr = sock_udp.recvfrom(UDP_PKG_SIZE)
+                data, addr = sock_udp.recvfrom(UDP_SIZE)
                 received_pdu = convert_pkg_to_pdu(data)
                 if received_pdu.type == REGISTER_REQ:
                     thread_register_req = threading.Thread(target=register_phase, args=(received_pdu, data, addr))
@@ -230,8 +235,10 @@ def service_loop():
                 tcp_thread.start()
                 tcp_thread.join()
                 #conn.close()
+
+
 def register_phase(received_pdu, data, addr):
-    global UDP_PKG_SIZE, clients, pdu_types, server, sock_udp
+    global UDP_SIZE, clients, pdu_types, server, sock_udp
     if debug == 1:
         print_time(f"DEBUG => Rebut: bytes={len(data)}, comanda={pdu_types[received_pdu.type]}, id={received_pdu.id}, mac={received_pdu.mac}, alea={received_pdu.alea}, dades={received_pdu.data}")
 
@@ -267,15 +274,15 @@ def register_phase(received_pdu, data, addr):
         elif addr[0] != clients[i].ip:
             pdu = Pdu(REGISTER_NACK, '', '000000000000', '000000','Equip ' + received_pdu.id + 'amb adreça ip incorrecta')
     if debug == 1:
-        print_time(f"DEBUG =>  Enviat: bytes={UDP_PKG_SIZE}, comanda={pdu_types[pdu.type]}, id={pdu.id}, mac={pdu.mac}, alea={pdu.alea}, dades={pdu.data}")
+        print_time(f"DEBUG =>  Enviat: bytes={UDP_SIZE}, comanda={pdu_types[pdu.type]}, id={pdu.id}, mac={pdu.mac}, alea={pdu.alea}, dades={pdu.data}")
 
-    sock_udp.sendto(pdu.convert_pdu_to_pkg(UDP_PKG_SIZE), addr)
+    sock_udp.sendto(pdu.convert_pdu_to_pkg(UDP_SIZE), addr)
 
 
 def alive_phase(received_pdu, addr):
     global sock_udp, clients, server
     if debug == 1:
-        print_time( f"DEBUG => Rebut: bytes={UDP_PKG_SIZE}, comanda={pdu_types[received_pdu.type]}, id={received_pdu.id}, mac={received_pdu.mac}, alea={received_pdu.alea}, dades={received_pdu.data}")
+        print_time( f"DEBUG => Rebut: bytes={UDP_SIZE}, comanda={pdu_types[received_pdu.type]}, id={received_pdu.id}, mac={received_pdu.mac}, alea={received_pdu.alea}, dades={received_pdu.data}")
     i = is_known_client(received_pdu.id)  # get the index of the client if it's known
     clients[i].last_received = datetime.now()  # saving last alive time reception
     clients[i].non_received_alives = 0 # when ALIVE_INF is received, counter is reset to 0
@@ -296,51 +303,69 @@ def alive_phase(received_pdu, addr):
         print_time(f"MSG.  =>  Equip {clients[i].id} passa a estat: SEND_ALIVE")
         clients[i].status = status_names[ALIVE]
     if debug == 1:
-        print_time( f"DEBUG =>  Enviat: bytes={UDP_PKG_SIZE}, comanda={pdu_types[pdu.type]}, id={pdu.id}, mac={pdu.mac}, alea={pdu.alea}, dades={pdu.data}")
+        print_time( f"DEBUG =>  Enviat: bytes={UDP_SIZE}, comanda={pdu_types[pdu.type]}, id={pdu.id}, mac={pdu.mac}, alea={pdu.alea}, dades={pdu.data}")
 
-    sock_udp.sendto(pdu.convert_pdu_to_pkg(UDP_PKG_SIZE), addr)
+    sock_udp.sendto(pdu.convert_pdu_to_pkg(UDP_SIZE), addr)
 
 
 def tcp_phase(conn, addr):
-    global sock_tcp, clients
-    received_tcp = conn.recv(TCP_PKG_SIZE)
-    pdu = convert_pkg_to_pdu(received_tcp)
-    print(pdu.type, pdu.id, pdu.data, pdu_types[pdu.type])
+    global clients, server
+    if debug == 1:
+        print_time("DEBUG =>  Rebuda connexió TCP, creat procés per atendre'l")
+    pdu = convert_pkg_to_pdu(conn.recv(TCP_SIZE))
     i = is_known_client(pdu.id)
-    if i != -1 and check_client_data(i, pdu):
-        if pdu.type == SEND_FILE:
+    if i != -1:
+        if pdu.type == SEND_FILE and not clients[i].is_transfering_files:
+            if debug == 1:
+                print_time(f"DEBUG =>  Rebut: bytes={TCP_SIZE}, comanda={pdu.type}, id={pdu.id}, mac={pdu.mac}, alea={pdu.alea}  dades={pdu.data}")
             if check_client_data(i, pdu):
-                print("client vol enviar arxiu")
+                clients[i].is_transfering_files = True
                 tcp_pdu = Pdu(SEND_ACK, server.id, server.mac, clients[i].alea, clients[i].id+".cfg")
-                sock_tcp.send(tcp_pdu.convert_pdu_to_pkg(UDP_PKG_SIZE), addr)
+                conn.send(tcp_pdu.convert_pdu_to_pkg(TCP_SIZE))
+                if debug == 1:
+                    print_time(f"DEBUG =>  Enviat: bytes={TCP_SIZE}, comanda=SEND_ACK, id={server.id}, mac={server.mac}, alea={clients[i].alea}  dades={clients[i].id}.cfg")
+                pdu = convert_pkg_to_pdu(conn.recv(TCP_SIZE))
+                last_tcp = datetime.now()
+                f = open(clients[i].id+".cfg", "w")
+                while pdu.type == SEND_DATA and not (datetime.now() - last_tcp).total_seconds() > W:
+                    pdu = convert_pkg_to_pdu(conn.recv(TCP_SIZE))
+                    if debug == 1:
+                        print_time(f"DEBUG =>  Rebut: bytes={TCP_SIZE}, comanda={pdu_types[pdu.type]}, id={pdu.id}, mac={pdu.mac}, alea={pdu.alea}  dades={pdu.data}\n")
+                    last_tcp = datetime.now()
+                    if pdu.type != SEND_END:
+                        f.write(pdu.data+"\n")
+                f.close()
+                print_time(f"MSG.  =>  Finalitzat enviament arxiu configuració. Equip: id={clients[i].id}, ip={addr[0]}, mac={pdu.mac} alea={pdu.alea}")
+                if debug == 1:
+                    print_time("DEBUG =>  Finalitzat el procés que atenia a un client TCP")
+                conn.close()
             elif clients[i].ip != addr[0] or clients[i].alea != pdu.alea:
                 tcp_pdu = Pdu(SEND_NACK, '', '000000000000', '000000', 'Dades addicionals de l’equip incorrectes')
-                sock_tcp.send(tcp_pdu.convert_pdu_to_pkg(TCP_PKG_SIZE), addr)
+                conn.send(tcp_pdu.convert_pdu_to_pkg(TCP_SIZE))
                 conn.close()
             #Aquest paquet també es pot enviar si arriba una petició d’un equip que ja està
             #efectuant una operació amb el seu arxiu de configuració (put o get).
             elif clients[i].id != pdu.id or clients[i].mac != pdu.mac:
                 tcp_pdu = Pdu(SEND_REJ, '', '000000000000', '000000', 'Discrepància amb les dades principals de l’equip')
-                sock_tcp.send(tcp_pdu.convert_pdu_to_pkg(TCP_PKG_SIZE), addr)
+                conn.send(tcp_pdu.convert_pdu_to_pkg(TCP_SIZE))
                 conn.close()
         elif pdu.type == GET_FILE:
-            print("client vol rebre arxiu")
             if check_client_data(i, pdu):
-                print("client vol enviar arxiu")
+                clients[i].is_transfering_files = True
                 tcp_pdu = Pdu(GET_ACK, server.id, server.mac, clients[i].alea, clients[i].id+".cfg")
-                sock_tcp.send(tcp_pdu.convert_pdu_to_pkg(UDP_PKG_SIZE), addr)
+                conn.send(tcp_pdu.convert_pdu_to_pkg(TCP_SIZE))
             elif clients[i].ip != addr[0] or clients[i].alea != pdu.alea:
                 tcp_pdu = Pdu(GET_NACK, '', '000000000000', '000000', 'Dades addicionals de l’equip incorrectes')
-                sock_tcp.send(tcp_pdu.convert_pdu_to_pkg(TCP_PKG_SIZE), addr)
+                conn.send(tcp_pdu.convert_pdu_to_pkg(TCP_SIZE))
                 conn.close()
             #Aquest paquet també es pot enviar si arriba una petició d’un equip que ja està
             #efectuant una operació amb el seu arxiu de configuració (put o get).
             elif clients[i].id != pdu.id or clients[i].mac != pdu.mac:
                 tcp_pdu = Pdu(GET_REJ, '', '000000000000', '000000', 'Discrepància amb les dades principals de l’equip')
-                sock_tcp.send(tcp_pdu.convert_pdu_to_pkg(TCP_PKG_SIZE), addr)
+                conn.send(tcp_pdu.convert_pdu_to_pkg(TCP_SIZE))
                 conn.close()
             conn.close()
-
+#send-cfg
 
 def command_line_phase():
     global clients, status_names
@@ -418,6 +443,7 @@ def create_tcp_socket():
     global server, debug, sock_tcp
     server_ip = "127.0.0.1"
     sock_tcp = socket.socket(family=socket.AF_INET, type=socket.SOCK_STREAM)
+    sock_tcp.setblocking(False)
     try:
         sock_tcp.bind((server_ip, int(server.tcp_port)))
         sock_tcp.listen(5)# number inside defines how many connection requests could be in the queue
