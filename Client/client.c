@@ -617,7 +617,6 @@ void alive_phase()
         else //// Timeout occurred
         {
             non_confirmated_alives += 1;
-            printf("TIMEEEOUT %d\n", non_confirmated_alives);
         }
     }
     // After O sent ALIVE_INF without server response(ALIVE_ACK), REGISTER proccess is reseted
