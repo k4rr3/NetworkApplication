@@ -131,7 +131,6 @@ void print_msg(char text[]);
 void print_status(char text[]);
 void connection_phase(char random_number[7]);
 struct pdu_udp generate_pdu_udp(int pdu_type, char random_number[], char data[]);
-void generate_pdu_udp_array(struct pdu_udp pdu, unsigned char pdu_package[], int array_size);
 void copyElements(char *src, char *dest, int start, int numElements);
 void alive_phase();
 struct pdu_udp unpack_pdu_udp(char pdu_package[]);
@@ -147,7 +146,6 @@ void send_file_by_lines();
 struct pdu_tcp generate_pdu_tcp(int pdu_type, char random_number[], char data[]);
 void get_cfg();
 int get_file_by_lines();
-void generate_pdu_tcp_array(struct pdu_tcp pdu, unsigned char pdu_package[], int array_size);
 struct pdu_tcp unpack_pdu_tcp(char pdu_package[]);
 void *send_alive_inf();
 void send_alive();
@@ -308,6 +306,7 @@ void connection_phase(char random_number[7])
     // Create PDU REGISTER_REQ package
     struct pdu_udp pdu_reg_req = generate_pdu_udp(REGISTER_REQ, random_number, "");
     unsigned char pdu_package[UDP_PKG_SIZE];
+    memcpy(pdu_package, &pdu_reg_req, sizeof(pdu_reg_req));
     int interval = T;
     int packets_sent = 0;
     // int process_made = 1;
@@ -319,7 +318,6 @@ void connection_phase(char random_number[7])
             print_msg("DEBUG =>  Registre equip, intent:  ");
             printf("%d\n", registration_attempt);
         }
-        generate_pdu_udp_array(pdu_reg_req, pdu_package, UDP_PKG_SIZE);
         // Send register package to the server
         if (sendto(sockfd_udp, pdu_package, UDP_PKG_SIZE, 0, (struct sockaddr *)&server_address_udp, sizeof(server_address_udp)) < 0)
         {
@@ -449,14 +447,6 @@ struct pdu_udp generate_pdu_udp(int pdu_type, char random_number[], char data[])
     strcpy((char *)pdu.data, (const char *)data);
     return pdu;
 }
-void generate_pdu_udp_array(struct pdu_udp pdu, unsigned char pdu_package[], int array_size)
-{
-    pdu_package[0] = pdu.pdu_type;
-    strcpy((char *)&pdu_package[1], (const char *)pdu.system_id);
-    strcpy((char *)&pdu_package[1 + 7], (const char *)pdu.mac_address);
-    strcpy((char *)&pdu_package[1 + 7 + 13], (const char *)pdu.random_number);
-    strcpy((char *)&pdu_package[1 + 7 + 13 + 7], (const char *)pdu.data);
-}
 struct pdu_udp unpack_pdu_udp(char pdu_package[])
 {
     struct pdu_udp pdu;
@@ -479,14 +469,7 @@ struct pdu_tcp generate_pdu_tcp(int pdu_type, char random_number[], char data[])
     strcpy((char *)pdu.data, (const char *)data);
     return pdu;
 }
-void generate_pdu_tcp_array(struct pdu_tcp pdu, unsigned char pdu_package[], int array_size)
-{
-    pdu_package[0] = pdu.pdu_type;
-    strcpy((char *)&pdu_package[1], (const char *)pdu.system_id);
-    strcpy((char *)&pdu_package[1 + 7], (const char *)pdu.mac_address);
-    strcpy((char *)&pdu_package[1 + 7 + 13], (const char *)pdu.random_number);
-    strcpy((char *)&pdu_package[1 + 7 + 13 + 7], (const char *)pdu.data);
-}
+
 struct pdu_tcp unpack_pdu_tcp(char pdu_package[])
 {
     struct pdu_tcp pdu;
@@ -699,7 +682,7 @@ void *send_alive_inf()
     // Create PDU ALIVE_INF package
     struct pdu_udp pdu_alive_inf = generate_pdu_udp(ALIVE_INF, received_reg_pdu.random_number, "");
     unsigned char pdu_package[UDP_PKG_SIZE];
-    generate_pdu_udp_array(pdu_alive_inf, pdu_package, UDP_PKG_SIZE);
+    memcpy(pdu_package, &pdu_alive_inf, sizeof(pdu_alive_inf));
 
     while (status != DISCONNECTED)
     {
@@ -776,10 +759,10 @@ void send_cfg()
         printf("Error: Could not open file.\n");
     }
     char data[150];
-    unsigned char pdu_package[TCP_PKG_SIZE];
     snprintf(data, sizeof(data), "%s,%ld", "boot.cfg", file_size);
     struct pdu_tcp try_send_file_pdu = generate_pdu_tcp(SEND_FILE, received_reg_pdu.random_number, data);
-    generate_pdu_tcp_array(try_send_file_pdu, pdu_package, TCP_PKG_SIZE);
+    unsigned char pdu_package[TCP_PKG_SIZE];
+    memcpy(pdu_package, &try_send_file_pdu, sizeof(try_send_file_pdu));
     fd_set read_fds;
     FD_ZERO(&read_fds);            // clears the file descriptor set read_fds and initializes it to the empty set.
     FD_SET(sockfd_tcp, &read_fds); // Adds the sockfd file descriptor to the read_fds set
@@ -820,7 +803,6 @@ void send_cfg()
         }
         if (check_equal_pdu_tcp(serv_response, received_reg_pdu))
         {
-            printf("send file\n");
             send_file_by_lines();
             print_msg("MSG.  =>  Finalitzat enviament d'arxiu de configuració al servidor ");
             printf("(%s)\n", boot_name);
@@ -861,13 +843,13 @@ void send_file_by_lines()
     }
 
     struct pdu_tcp pdu_line;
-    char pdu_package[TCP_PKG_SIZE];
+    unsigned char pdu_package[TCP_PKG_SIZE];
 
     while (fgets(line, 150, fp) != NULL)
     {
         // line[strcspn(line, "\n")] = '\0'; // Remove the newline character from the end of the line
         pdu_line = generate_pdu_tcp(SEND_DATA, received_reg_pdu.random_number, line);
-        generate_pdu_tcp_array(pdu_line, (unsigned char *)pdu_package, TCP_PKG_SIZE);
+        memcpy(pdu_package, &pdu_line, sizeof(pdu_line));
         send(sockfd_tcp, pdu_package, sizeof(pdu_package), 0);
         if (debug == 1)
         {
@@ -876,7 +858,8 @@ void send_file_by_lines()
         }
     }
     pdu_line = generate_pdu_tcp(SEND_END, received_reg_pdu.random_number, "");
-    generate_pdu_tcp_array(pdu_line, (unsigned char *)pdu_package, TCP_PKG_SIZE);
+    
+    memcpy(pdu_package, &pdu_line, sizeof(pdu_line));
     send(sockfd_tcp, pdu_package, sizeof(pdu_package), 0);
     if (debug == 1)
     {
@@ -924,10 +907,10 @@ void get_cfg()
     }
     char data[150];
     int err = 0;
-    unsigned char pdu_package[TCP_PKG_SIZE];
     snprintf(data, sizeof(data), "%s,%ld", boot_name, file_size);
     struct pdu_tcp try_send_file_pdu = generate_pdu_tcp(GET_FILE, received_reg_pdu.random_number, data);
-    generate_pdu_tcp_array(try_send_file_pdu, pdu_package, TCP_PKG_SIZE);
+    unsigned char pdu_package[TCP_PKG_SIZE];
+    memcpy(pdu_package, &try_send_file_pdu, sizeof(try_send_file_pdu));
     fd_set read_fds;
     FD_ZERO(&read_fds);            // clears the file descriptor set read_fds and initializes it to the empty set.
     FD_SET(sockfd_tcp, &read_fds); // Adds the sockfd file descriptor to the read_fds set
@@ -955,7 +938,6 @@ void get_cfg()
         struct pdu_tcp serv_response = unpack_pdu_tcp((char *)pdu_package);
         if (serv_response.pdu_type == GET_ACK)
         {
-            printf("send file\n");
             err = get_file_by_lines();
         }
         if (err == 0)
