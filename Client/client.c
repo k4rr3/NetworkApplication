@@ -14,9 +14,11 @@
 #include <netinet/in.h>
 #include <netdb.h>
 
+//CONSTANTS
 #define MAX_LEN 20
 #define UDP_PKG_SIZE 78
 #define TCP_PKG_SIZE 178
+
 // TIMERS AND THRESHOLDS
 #define T 1
 #define P 2
@@ -124,39 +126,43 @@ struct pdu_tcp
     char random_number[7];
     char data[150];
 };
+
 // DECLARATION
 void get_client_cfg(char *file_name);
-char *read_line(char line[], FILE *file);
-void print_msg(char text[]);
-void print_status(char text[]);
 void connection_phase(char random_number[7]);
-struct pdu_udp generate_pdu_udp(int pdu_type, char random_number[], char data[]);
-void copyElements(char *src, char *dest, int start, int numElements);
 void alive_phase();
-struct pdu_udp unpack_pdu_udp(char pdu_package[]);
-char *extractElements(char *src, int start, int numElements);
-int check_equal_pdu_udp(struct pdu_udp pdu1, struct pdu_udp pdu2);
-int check_equal_pdu_tcp(struct pdu_tcp pdu1, struct pdu_udp pdu2);
 void *command_phase();
-int known_command(char command[]);
 void send_cfg();
-long int get_file_size(const char *filename);
-char *search_arg(int argc, char *argv[], char *option, char *name);
-void send_file_by_lines();
-struct pdu_tcp generate_pdu_tcp(int pdu_type, char random_number[], char data[]);
 void get_cfg();
-int get_file_by_lines();
-struct pdu_tcp unpack_pdu_tcp(char pdu_package[]);
 void *send_alive_inf();
 void send_alive();
 void connect_tcp_socket();
+struct pdu_udp generate_pdu_udp(int pdu_type, char random_number[], char data[]);
+struct pdu_tcp generate_pdu_tcp(int pdu_type, char random_number[], char data[]);
+struct pdu_udp unpack_pdu_udp(char pdu_package[]);
+struct pdu_tcp unpack_pdu_tcp(char pdu_package[]);
+int check_equal_pdu_udp(struct pdu_udp pdu1, struct pdu_udp pdu2);
+int check_equal_pdu_tcp(struct pdu_tcp pdu1, struct pdu_udp pdu2);
+void copyElements(char *src, char *dest, int start, int numElements);
+char *extractElements(char *src, int start, int numElements);
+char *read_line(char line[], FILE *file);
+void print_msg(char text[]);
+void print_status(char text[]);
+int known_command(char command[]);
+int get_file_by_lines();
+void send_file_by_lines();
+long int get_file_size(const char *filename);
+char *search_arg(int argc, char *argv[], char *option, char *name);
 
+
+//GLOBAL VARS
 struct cfg user_config;
 struct pdu_udp received_reg_pdu, received_alive_pdu;
 struct sockaddr_in client_address, server_address_udp, server_address_tcp;
 char *boot_name, *file_name;
 int debug, status, sockfd_udp = -1, sockfd_tcp = -1, registration_attempt = 1;
 pthread_t thread_command, thread_send_alive;
+
 
 int main(int argc, char *argv[])
 {
@@ -784,7 +790,6 @@ void send_cfg()
     {
         print_msg("ALERT =>  No s'ha rebut informació per el canal TCP durant 3 segons\n");
         close(sockfd_tcp);
-        // alive_phase(sockfd_udp, REGISTERED, user_config, server_address, received_reg_pdu, debug, boot_name, 1);
     }
     else
     {
@@ -847,7 +852,6 @@ void send_file_by_lines()
 
     while (fgets(line, 150, fp) != NULL)
     {
-        // line[strcspn(line, "\n")] = '\0'; // Remove the newline character from the end of the line
         pdu_line = generate_pdu_tcp(SEND_DATA, received_reg_pdu.random_number, line);
         memcpy(pdu_package, &pdu_line, sizeof(pdu_line));
         send(sockfd_tcp, pdu_package, sizeof(pdu_package), 0);
