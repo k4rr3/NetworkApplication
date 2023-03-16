@@ -326,22 +326,21 @@ def tcp_phase(conn, addr):
                 print_time(
                     f"DEBUG =>  Rebut: bytes={TCP_SIZE}, comanda={pdu_types[pdu.type]}, id={pdu.id}, mac={pdu.mac}, alea={pdu.alea}  dades={pdu.data}\n")
             f = open(clients[i].id + ".cfg", "w")
-            last_tcp = datetime.now()
 
             while pdu.type == SEND_DATA:
-                readable, _, _ = select.select([sock_tcp], [], [], W)
-                if len(readable) != 0:
+                ready = select.select([conn], [], [], W)
+                if ready[0]:
                     pdu = convert_pkg_to_pdu(conn.recv(TCP_SIZE))
-                    last_tcp = datetime.now()
                     if debug == 1:
                         print_time(
                             f"DEBUG =>  Rebut: bytes={TCP_SIZE}, comanda={pdu_types[pdu.type]}, id={pdu.id}, mac={pdu.mac}, alea={pdu.alea}  dades={pdu.data}\n")
-                elif (datetime.now() - last_tcp).total_seconds() >= W:
+
+                    if pdu.type != SEND_END:
+                        f.write(pdu.data + "\n")
+                else:
                     print_time(f"ALERT =>  No s'ha rebut informació per el canal TCP durant {W} segons")
                     break
-                if pdu.type != SEND_END:
-                    f.write(pdu.data + "\n")
-            f.close()
+
             print_time(f"MSG.  =>  Finalitzat enviament arxiu configuració. Equip: id={clients[i].id}, ip={addr[0]}, mac={pdu.mac} alea={pdu.alea}")
             if debug == 1:
                 print_time("DEBUG =>  Finalitzat el procés que atenia a un client TCP")
