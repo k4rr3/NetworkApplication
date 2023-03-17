@@ -7,12 +7,12 @@
 #include <sys/time.h>
 #include <fcntl.h>
 #include <pthread.h>
-
 #include <signal.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <netdb.h>
+
 
 //CONSTANTS
 #define MAX_LEN 20
@@ -188,7 +188,7 @@ void print_msg(char text[])
     struct tm *time_info;
     time(&current_time);
     time_info = localtime(&current_time);
-    printf("%02d:%02d:%02d %s", time_info->tm_hour, time_info->tm_min, time_info->tm_sec, text);
+    printf("%02d:%02d:%02d: %s", time_info->tm_hour, time_info->tm_min, time_info->tm_sec, text);
 }
 void print_status(char text[])
 {
@@ -269,7 +269,7 @@ char *search_arg(int argc, char *argv[], char *option, char *name)
     return name;
 }
 //
-// ESTABLISH CONNECTION WITH THE SERVER AND REGISTER PHASE
+// STABLISH CONNECTION WITH THE SERVER AND REGISTER PHASE
 //
 void connection_phase(char random_number[7])
 {
@@ -311,10 +311,9 @@ void connection_phase(char random_number[7])
 
     // Create PDU REGISTER_REQ package
     struct pdu_udp pdu_reg_req = generate_pdu_udp(REGISTER_REQ, random_number, "");
-    unsigned char pdu_package[UDP_PKG_SIZE];
-    memcpy(pdu_package, &pdu_reg_req, sizeof(pdu_reg_req));
     int interval = T;
     int packets_sent = 0;
+    unsigned char pdu_package[UDP_PKG_SIZE];
     // int process_made = 1;
     status = WAIT_REG_RESPONSE;
     while (status != REGISTERED && status != DISCONNECTED && registration_attempt <= O)
@@ -325,7 +324,7 @@ void connection_phase(char random_number[7])
             printf("%d\n", registration_attempt);
         }
         // Send register package to the server
-        if (sendto(sockfd_udp, pdu_package, UDP_PKG_SIZE, 0, (struct sockaddr *)&server_address_udp, sizeof(server_address_udp)) < 0)
+        if (sendto(sockfd_udp, &pdu_reg_req, UDP_PKG_SIZE, 0, (struct sockaddr *)&server_address_udp, sizeof(server_address_udp)) < 0)
         {
             perror("sendto() failed");
             exit(-1);
@@ -634,46 +633,7 @@ char *extractElements(char *src, int start, int numElements)
     dest[numElements] = '\0'; // add the null terminator
     return dest;
 }
-/* void *send_alive_inf()
-{
 
-    struct itimerval timer;
-    timer.it_value.tv_sec = R;
-    timer.it_value.tv_usec = 0;
-    timer.it_interval = timer.it_value;
-    signal(SIGALRM, send_alive);
-    if (setitimer(ITIMER_REAL, &timer, NULL))
-    {
-        perror("setitimer() failed: ");
-        exit(-1);
-    }
-
-    int flags = fcntl(sockfd_udp, F_GETFL, 0);
-    fcntl(sockfd_udp, F_SETFL, flags | O_NONBLOCK);
-    if (debug == 1)
-    {
-        show_status("DEBUG =>  Creat procés per gestionar alives\n", -1);
-        show_status("DEBUG =>  Establert temporitzador per enviament alives\n", -1);
-    }
-    return NULL;
-}
-void send_alive(int sig)
-{
-    // Create PDU ALIVE_INF package
-    struct pdu_udp pdu_alive_inf = generate_pdu_udp(ALIVE_INF, received_reg_pdu.random_number, "");
-    unsigned char pdu_package[UDP_PKG_SIZE];
-    generate_pdu_udp_array(pdu_alive_inf, pdu_package, UDP_PKG_SIZE);
-    if (sendto(sockfd_udp, pdu_package, UDP_PKG_SIZE, 0, (struct sockaddr *)&server_address_udp, sizeof(server_address_udp)) < 0)
-    {
-        perror("sendto() failed");
-        exit(-1);
-    }
-    if (debug == 1)
-    {
-        show_status(" DEBUG =>  Enviat: ", -1);
-        printf("bytes=%d, comanda=%s id=%s, mac=%s, alea=%s  dades=%s\n", UDP_PKG_SIZE, pdu_types[pdu_alive_inf.pdu_type], pdu_alive_inf.system_id, pdu_alive_inf.mac_address, pdu_alive_inf.random_number, pdu_alive_inf.data);
-    }
-} */
 void *send_alive_inf()
 {
 
@@ -687,12 +647,10 @@ void *send_alive_inf()
 
     // Create PDU ALIVE_INF package
     struct pdu_udp pdu_alive_inf = generate_pdu_udp(ALIVE_INF, received_reg_pdu.random_number, "");
-    unsigned char pdu_package[UDP_PKG_SIZE];
-    memcpy(pdu_package, &pdu_alive_inf, sizeof(pdu_alive_inf));
 
     while (status != DISCONNECTED)
     {
-        if (sendto(sockfd_udp, pdu_package, UDP_PKG_SIZE, 0, (struct sockaddr *)&server_address_udp, sizeof(server_address_udp)) < 0)
+        if (sendto(sockfd_udp, &pdu_alive_inf, UDP_PKG_SIZE, 0, (struct sockaddr *)&server_address_udp, sizeof(server_address_udp)) < 0)
         {
             perror("sendto() failed");
             exit(-1);
@@ -739,6 +697,9 @@ void *command_phase()
         }
         else
         {
+            //Close all socket communications
+            close(sockfd_udp);
+            close(sockfd_tcp);
             exit(0); // Client finished due to quit command
         }
     }
@@ -768,12 +729,11 @@ void send_cfg()
     snprintf(data, sizeof(data), "%s,%ld", "boot.cfg", file_size);
     struct pdu_tcp try_send_file_pdu = generate_pdu_tcp(SEND_FILE, received_reg_pdu.random_number, data);
     unsigned char pdu_package[TCP_PKG_SIZE];
-    memcpy(pdu_package, &try_send_file_pdu, sizeof(try_send_file_pdu));
     fd_set read_fds;
     FD_ZERO(&read_fds);            // clears the file descriptor set read_fds and initializes it to the empty set.
     FD_SET(sockfd_tcp, &read_fds); // Adds the sockfd file descriptor to the read_fds set
     struct timeval timeout = {W, 0};
-    send(sockfd_tcp, pdu_package, sizeof(pdu_package), 0);
+    send(sockfd_tcp, &try_send_file_pdu, TCP_PKG_SIZE, 0);
     if (debug == 1)
     {
         print_msg(" DEBUG =>  Enviat: ");
@@ -848,13 +808,11 @@ void send_file_by_lines()
     }
 
     struct pdu_tcp pdu_line;
-    unsigned char pdu_package[TCP_PKG_SIZE];
 
     while (fgets(line, 150, fp) != NULL)
     {
         pdu_line = generate_pdu_tcp(SEND_DATA, received_reg_pdu.random_number, line);
-        memcpy(pdu_package, &pdu_line, sizeof(pdu_line));
-        send(sockfd_tcp, pdu_package, sizeof(pdu_package), 0);
+        send(sockfd_tcp, &pdu_line, sizeof(pdu_line), 0);
         if (debug == 1)
         {
             print_msg(" DEBUG =>  Enviat: ");
@@ -862,9 +820,7 @@ void send_file_by_lines()
         }
     }
     pdu_line = generate_pdu_tcp(SEND_END, received_reg_pdu.random_number, "");
-    
-    memcpy(pdu_package, &pdu_line, sizeof(pdu_line));
-    send(sockfd_tcp, pdu_package, sizeof(pdu_package), 0);
+    send(sockfd_tcp, &pdu_line, sizeof(pdu_line), 0);
     if (debug == 1)
     {
         print_msg(" DEBUG =>  Enviat: ");

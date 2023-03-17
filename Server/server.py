@@ -1,4 +1,4 @@
-#!/usr/bin/env python3.8
+#!/usr/bin/python3
 import os
 import random
 import select
@@ -79,6 +79,7 @@ server_file = 'server.cfg'
 debug = 0
 server = None
 clients = []
+threads = []
 UDP_SIZE = 78
 TCP_SIZE = 178
 sock_udp = -1
@@ -213,8 +214,7 @@ def service_loop():
         for r in readable:
             # Handle input from stdin
             if r is sys.stdin:
-                thread_cmnd = threading.Thread(target=command_line_phase)
-                thread_cmnd.start()
+                command_line_phase()
 
             # Handle input from UDP socket
             elif r is sock_udp:
@@ -222,15 +222,18 @@ def service_loop():
                 received_pdu = convert_pkg_to_pdu(data)
                 if received_pdu.type == REGISTER_REQ:
                     thread_register_req = threading.Thread(target=register_phase, args=(received_pdu, data, addr))
+                    threads.append(thread_register_req)
                     thread_register_req.start()
                 elif received_pdu.type == ALIVE_INF:
                     thread_alive = threading.Thread(target=alive_phase, args=(received_pdu, addr))
+                    threads.append(thread_alive)
                     thread_alive.start()
 
             # Handle input from TCP socket
             elif r is sock_tcp:
                 conn, addr = r.accept()
                 tcp_thread = threading.Thread(target=tcp_phase, args=(conn, addr))
+                threads.append(tcp_thread)
                 tcp_thread.start()
 
 
@@ -321,13 +324,8 @@ def tcp_phase(conn, addr):
             conn.send(tcp_pdu.convert_pdu_to_pkg(TCP_SIZE))
             if debug == 1:
                 print_time(f"DEBUG =>  Enviat: bytes={TCP_SIZE}, comanda={pdu_types[tcp_pdu.type]}, id={tcp_pdu.id}, mac={tcp_pdu.mac}, alea={tcp_pdu.alea}  dades={tcp_pdu.data}")
-            pdu = convert_pkg_to_pdu(conn.recv(TCP_SIZE))
-            if debug == 1:
-                print_time(
-                    f"DEBUG =>  Rebut: bytes={TCP_SIZE}, comanda={pdu_types[pdu.type]}, id={pdu.id}, mac={pdu.mac}, alea={pdu.alea}  dades={pdu.data}\n")
             f = open(clients[i].id + ".cfg", "w")
-
-            while pdu.type == SEND_DATA:
+            while pdu.type == SEND_DATA or pdu.type == SEND_FILE:
                 ready = select.select([conn], [], [], W)
                 if ready[0]:
                     pdu = convert_pkg_to_pdu(conn.recv(TCP_SIZE))
@@ -406,25 +404,24 @@ def tcp_phase(conn, addr):
     conn.close()
     #send-cfg get-cfg
 
-def command_line_phase():
-    global clients, status_names
-    while True:
-        command = input()
-        if command == 'list':
-            print("\t\tNom \t|\t Mac \t  |\t   Estat \t|\t Adreça IP \t|\t Alea")
-            for cli in clients:
-                ip_addr_alea = ''
-                if cli.status == "REGISTERED" or cli.status == "SEND_ALIVE":
-                    ip_addr_alea = cli.ip + "\t\t" + cli.alea
-                print(f"\t\t" + str(cli.id) + "\t" + str(cli.mac) + "\t" + cli.status + "\t\t" + ip_addr_alea)
-        elif command == 'quit':
-            if debug == 1:
-                print_time("DEBUG =>  Petició de finalització")
-                print_time("DEBUG =>  Cancelat temporitzador per control alives")
 
-            sys.exit(0)
-        else:
-            print_time("MSG.  =>  Comanda incorrecta")
+def command_line_phase():
+    global clients, status_names, threads, sock_udp, sock_tcp
+    command = input()
+    if command == 'list':
+        print("\t\tNom \t|\t Mac \t  |\t   Estat \t|\t Adreça IP \t|\t Alea")
+        for cli in clients:
+            ip_addr_alea = ''
+            if cli.status == "REGISTERED" or cli.status == "SEND_ALIVE":
+                ip_addr_alea = cli.ip + "\t\t" + cli.alea
+            print(f"\t\t" + str(cli.id) + "\t" + str(cli.mac) + "\t" + cli.status + "\t\t" + ip_addr_alea)
+    elif command == 'quit':
+        if debug == 1:
+            print_time("DEBUG =>  Petició de finalització")
+            print_time("DEBUG =>  Cancelat temporitzador per control alives")
+        close()
+    else:
+        print_time("MSG.  =>  Comanda incorrecta")
 
 
 def check_timeout():
@@ -485,7 +482,7 @@ def create_tcp_socket():
     sock_tcp.setblocking(False)
     try:
         sock_tcp.bind((server_ip, int(server.tcp_port)))
-        sock_tcp.listen(5)# number inside defines how many connection requests could be in the queue
+        sock_tcp.listen(5)  # number inside defines how many connection requests could be in the queue
         if debug == 1:
             print_time('DEBUG =>  Socket TCP actiu')
     except:
@@ -494,17 +491,24 @@ def create_tcp_socket():
     return sock_tcp
 
 
+def close():
+    global threads, sock_udp, sock_tcp
+    sock_udp.close()
+    sock_tcp.close()
+    for t in threads:
+        t.join()
+    sys.exit()
+
+
 if __name__ == '__main__':
     try:
         main()
     except KeyboardInterrupt:
         if debug == 1:
             print_time("DEBUG =>  Finalització per ^C")
-        sock_udp.close()
-        sock_tcp.close()
-        sys.exit()
+        close()
     except SystemExit:
-        sys.exit('Program terminated by sys.exit()')
+        close()
     except Exception as e:
         print(f'ERROR: {str(e)}')
-        sys.exit('Program terminated with error')
+        close()
