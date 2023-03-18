@@ -674,7 +674,7 @@ void *command_phase()
         {
             if (debug == 1)
             {
-                print_msg("DEBUG =>  Creat procés per gestionar comanda sobre arxiu configuració ");
+                print_msg("DEBUG =>  Creat procés per gestionar comanda sobre arxiu configuració \n");
             }
 
             print_msg("MSG.  =>  Sol·licitud d'enviament d'arxiu de configuració al servidor ");
