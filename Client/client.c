@@ -13,8 +13,7 @@
 #include <netinet/in.h>
 #include <netdb.h>
 
-
-//CONSTANTS
+// CONSTANTS
 #define MAX_LEN 20
 #define UDP_PKG_SIZE 78
 #define TCP_PKG_SIZE 178
@@ -154,15 +153,13 @@ void send_file_by_lines();
 long int get_file_size(const char *filename);
 char *search_arg(int argc, char *argv[], char *option, char *name);
 
-
-//GLOBAL VARS
+// GLOBAL VARS
 struct cfg user_config;
 struct pdu_udp received_reg_pdu, received_alive_pdu;
 struct sockaddr_in client_address, server_address_udp, server_address_tcp;
 char *boot_name, *file_name;
 int debug, status, sockfd_udp = -1, sockfd_tcp = -1, registration_attempt = 1;
 pthread_t thread_command, thread_send_alive;
-
 
 int main(int argc, char *argv[])
 {
@@ -386,7 +383,7 @@ void connection_phase(char random_number[7])
             }
             pdu_package[has_received_pkg] = '\0';
             received_reg_pdu = unpack_pdu_udp((char *)pdu_package);
-            
+
             if (debug == 1)
             {
                 print_msg("DEBUG =>  Rebut: ");
@@ -697,7 +694,7 @@ void *command_phase()
         }
         else
         {
-            //Close all socket communications
+            // Close all socket communications
             close(sockfd_udp);
             close(sockfd_tcp);
             exit(0); // Client finished due to quit command
@@ -799,36 +796,43 @@ void send_file_by_lines()
 {
     FILE *fp;
     char line[150];
-
-    fp = fopen(boot_name, "r");
-    if (fp == NULL)
+    if (get_file_size(boot_name) == 0)
     {
-        perror("Error opening file");
-        exit(-1);
+        print_msg("");
+        printf("MSG.  =>  L'arxiu: %s, no té cap contingut. No es pot dur a terme la comanda", boot_name);
     }
-
-    struct pdu_tcp pdu_line;
-
-    while (fgets(line, 150, fp) != NULL)
+    else
     {
-        pdu_line = generate_pdu_tcp(SEND_DATA, received_reg_pdu.random_number, line);
+        fp = fopen(boot_name, "r");
+        if (fp == NULL)
+        {
+            perror("Error opening file");
+            exit(-1);
+        }
+
+        struct pdu_tcp pdu_line;
+
+        while (fgets(line, 150, fp) != NULL)
+        {
+            pdu_line = generate_pdu_tcp(SEND_DATA, received_reg_pdu.random_number, line);
+            send(sockfd_tcp, &pdu_line, sizeof(pdu_line), 0);
+            if (debug == 1)
+            {
+                print_msg("DEBUG =>  Enviat: ");
+                printf("bytes=%d, comanda=%s id=%s, mac=%s, alea=%s  dades=%s\n\n", TCP_PKG_SIZE, pdu_types[pdu_line.pdu_type], pdu_line.system_id, pdu_line.mac_address, pdu_line.random_number, pdu_line.data);
+            }
+        }
+        pdu_line = generate_pdu_tcp(SEND_END, received_reg_pdu.random_number, "");
         send(sockfd_tcp, &pdu_line, sizeof(pdu_line), 0);
         if (debug == 1)
         {
             print_msg("DEBUG =>  Enviat: ");
             printf("bytes=%d, comanda=%s id=%s, mac=%s, alea=%s  dades=%s\n\n", TCP_PKG_SIZE, pdu_types[pdu_line.pdu_type], pdu_line.system_id, pdu_line.mac_address, pdu_line.random_number, pdu_line.data);
         }
+        close(sockfd_tcp);
+        // Close the file send-cfg
+        fclose(fp);
     }
-    pdu_line = generate_pdu_tcp(SEND_END, received_reg_pdu.random_number, "");
-    send(sockfd_tcp, &pdu_line, sizeof(pdu_line), 0);
-    if (debug == 1)
-    {
-        print_msg("DEBUG =>  Enviat: ");
-        printf("bytes=%d, comanda=%s id=%s, mac=%s, alea=%s  dades=%s\n\n", TCP_PKG_SIZE, pdu_types[pdu_line.pdu_type], pdu_line.system_id, pdu_line.mac_address, pdu_line.random_number, pdu_line.data);
-    }
-    close(sockfd_tcp);
-    // Close the file send-cfg
-    fclose(fp);
 }
 void connect_tcp_socket()
 {

@@ -179,9 +179,8 @@ def read_server_cfg():
         line = server_cfg_file.readline()
         if line != '\n' and line != '':
             cfg.append(line.split())
-            # server id   mac        udp_port    tcp_port
+            # server id        mac      udp_port   tcp_port
     server = Cfg(cfg[0][1], cfg[1][1], cfg[2][1], cfg[3][1])
-    # print(server_cfg.id, " ", server_cfg.mac, " ", server_cfg.udp_port, " ", server_cfg.tcp_port, "\n")
     if debug == 1:
         print_time('DEBUG =>  Llegits paràmetres arxiu de configuració')
 
@@ -239,8 +238,9 @@ def service_loop():
 
 def register_phase(received_pdu, data, addr):
     global UDP_SIZE, clients, pdu_types, server, sock_udp
+    pdu = None
     if debug == 1:
-        print_time(f"DEBUG => Rebut: bytes={len(data)}, comanda={pdu_types[received_pdu.type]}, id={received_pdu.id}, mac={received_pdu.mac}, alea={received_pdu.alea}, dades={received_pdu.data}")
+        print_time(f"DEBUG =>  Rebut: bytes={len(data)}, comanda={pdu_types[received_pdu.type]}, id={received_pdu.id}, mac={received_pdu.mac}, alea={received_pdu.alea}, dades={received_pdu.data}")
 
     i = is_known_client(received_pdu.id)  # get the index of the client, if it's known
     if i == -1:
@@ -273,16 +273,18 @@ def register_phase(received_pdu, data, addr):
 
         elif addr[0] != clients[i].ip:
             pdu = Pdu(REGISTER_NACK, '', '000000000000', '000000','Equip ' + received_pdu.id + 'amb adreça ip incorrecta')
-    if debug == 1:
-        print_time(f"DEBUG =>  Enviat: bytes={UDP_SIZE}, comanda={pdu_types[pdu.type]}, id={pdu.id}, mac={pdu.mac}, alea={pdu.alea}, dades={pdu.data}")
 
-    sock_udp.sendto(pdu.convert_pdu_to_pkg(UDP_SIZE), addr)
+    if pdu is not None:
+        if debug == 1:
+            print_time(f"DEBUG =>  Enviat: bytes={UDP_SIZE}, comanda={pdu_types[pdu.type]}, id={pdu.id}, mac={pdu.mac}, alea={pdu.alea}, dades={pdu.data}")
+
+        sock_udp.sendto(pdu.convert_pdu_to_pkg(UDP_SIZE), addr)
 
 
 def alive_phase(received_pdu, addr):
     global sock_udp, clients, server
     if debug == 1:
-        print_time( f"DEBUG => Rebut: bytes={UDP_SIZE}, comanda={pdu_types[received_pdu.type]}, id={received_pdu.id}, mac={received_pdu.mac}, alea={received_pdu.alea}, dades={received_pdu.data}")
+        print_time( f"DEBUG =>  Rebut: bytes={UDP_SIZE}, comanda={pdu_types[received_pdu.type]}, id={received_pdu.id}, mac={received_pdu.mac}, alea={received_pdu.alea}, dades={received_pdu.data}")
     i = is_known_client(received_pdu.id)  # get the index of the client if it's known
     clients[i].last_received = datetime.now()  # saving last alive time reception
     clients[i].non_received_alives = 0 # when ALIVE_INF is received, counter is reset to 0
@@ -303,7 +305,7 @@ def alive_phase(received_pdu, addr):
         print_time(f"MSG.  =>  Equip {clients[i].id} passa a estat: SEND_ALIVE")
         clients[i].status = status_names[ALIVE]
     if debug == 1:
-        print_time( f"DEBUG =>  Enviat: bytes={UDP_SIZE}, comanda={pdu_types[pdu.type]}, id={pdu.id}, mac={pdu.mac}, alea={pdu.alea}, dades={pdu.data}")
+        print_time( f"DEBUG =>  Enviat: bytes={UDP_SIZE}, comanda={pdu_types[pdu.type]}, id={pdu.id}, mac={pdu.mac}, alea={pdu.alea}, dades={pdu.data}\n")
 
     sock_udp.sendto(pdu.convert_pdu_to_pkg(UDP_SIZE), addr)
 
@@ -334,7 +336,12 @@ def tcp_phase(conn, addr):
                             f"DEBUG =>  Rebut: bytes={TCP_SIZE}, comanda={pdu_types[pdu.type]}, id={pdu.id}, mac={pdu.mac}, alea={pdu.alea}  dades={pdu.data}\n")
 
                     if pdu.type != SEND_END:
-                        f.write(pdu.data + "\n")
+                        #  to check if data contains '\n' and add it if necessary
+                        if len(pdu.data) > 0 and pdu.data[len(pdu.data) - 1] == '\n':
+                            f.write(pdu.data)
+                        else:
+                            f.write(pdu.data + "\n")
+
                 else:
                     print_time(f"ALERT =>  No s'ha rebut informació per el canal TCP durant {W} segons")
                     break
@@ -409,12 +416,14 @@ def command_line_phase():
     global clients, status_names, threads, sock_udp, sock_tcp
     command = input()
     if command == 'list':
-        print("\t\tNom \t|\t Mac \t  |\t   Estat \t|\t Adreça IP \t|\t Alea")
+        print("\t Nom \t|\t Mac \t  |\t   Estat \t|\t Adreça IP \t|\t Alea\n")
         for cli in clients:
             ip_addr_alea = ''
             if cli.status == "REGISTERED" or cli.status == "SEND_ALIVE":
                 ip_addr_alea = cli.ip + "\t\t" + cli.alea
-            print(f"\t\t" + str(cli.id) + "\t" + str(cli.mac) + "\t" + cli.status + "\t\t" + ip_addr_alea)
+            ip_addr_alea = str(cli.ip) + "\t\t" + str(cli.alea)
+            print(f"\t" + str(cli.id) + "\t    " + str(cli.mac) + "\t" + cli.status + "\t\t\t" + ip_addr_alea)
+        print("\n")
     elif command == 'quit':
         if debug == 1:
             print_time("DEBUG =>  Petició de finalització")
