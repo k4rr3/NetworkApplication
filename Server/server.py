@@ -371,7 +371,7 @@ def tcp_phase(conn, addr):
             conn.send(tcp_pdu.convert_pdu_to_pkg(TCP_SIZE))
             if debug == 1:
                 print_time(
-                    f"DEBUG =>  Enviat: bytes={TCP_SIZE}, comanda={pdu_types[pdu.type]}, id={server.id}, mac={server.mac}, alea={clients[i].alea}  dades={clients[i].id}.cfg")
+                    f"DEBUG =>  Enviat: bytes={TCP_SIZE}, comanda={pdu_types[tcp_pdu.type]}, id={server.id}, mac={server.mac}, alea={clients[i].alea}  dades={clients[i].id}.cfg")
             f = open(clients[i].id + ".cfg", "r")
             while pdu.type != GET_END:
                 line = f.readline()
