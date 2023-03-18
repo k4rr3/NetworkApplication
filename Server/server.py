@@ -395,7 +395,7 @@ def tcp_phase(conn, addr):
             if debug == 1:
                 print_time("DEBUG =>  Finalitzat el procés que atenia a un client TCP")
             clients[i].is_transfering_files = False
-        elif clients[i].id != pdu.id or clients[i].mac != pdu.mac or os.path.isfile(clients[i].id+".cfg"):
+        elif clients[i].id != pdu.id or clients[i].mac != pdu.mac or not os.path.isfile(clients[i].id+".cfg"):
             tcp_pdu = Pdu(GET_REJ, '', '000000000000', '000000', 'Rebutjat paquet TCP tipus: GET_FILE (Equip no autoritzat)')
             print_time("INFO  =>  Denegat paquet TCP tipus: GET_FILE (Error dades equip)")
             if debug == 1:
@@ -480,7 +480,7 @@ def create_udp_socket():
             print_time('DEBUG =>  Socket UDP actiu')
     except:
         print_time("WARN. =>  No es pot fer bind amb el socket UDP")
-        sys.exit(-1)
+        close()
     return sock_udp
 
 
@@ -496,14 +496,16 @@ def create_tcp_socket():
             print_time('DEBUG =>  Socket TCP actiu')
     except:
         print_time("WARN. =>  No es pot fer bind amb el socket TCP")
-        sys.exit(-1)
+        close()
     return sock_tcp
 
 
 def close():
     global threads, sock_udp, sock_tcp
-    sock_udp.close()
-    sock_tcp.close()
+    if sock_udp != -1:
+        sock_udp.close()
+    if sock_tcp != -1:
+        sock_tcp.close()
     for t in threads:
         t.join()
     sys.exit()
