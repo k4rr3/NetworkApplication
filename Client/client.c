@@ -175,7 +175,7 @@ int main(int argc, char *argv[])
         print_msg("DEBUG =>  Inici bucle de servei equip : ");
         printf("%s\n", user_config.id);
     }
-    print_status("MSG.  =>  Equip passa a l'estat: ");
+    print_status("MSG.  =>  Equip passa a l'estat ");
     connection_phase("000000");
 }
 
@@ -329,9 +329,9 @@ void connection_phase(char random_number[7])
         if (debug == 1)
         {
             print_msg("DEBUG =>  Enviat: ");
-            printf("bytes=%d, comanda=%s id=%s, mac=%s, alea=%s  dades=%s\n", UDP_PKG_SIZE, pdu_types[pdu_reg_req.pdu_type], pdu_reg_req.system_id, pdu_reg_req.mac_address, pdu_reg_req.random_number, pdu_reg_req.data);
+            printf("bytes=%d, comanda=%s, id=%s, mac=%s, alea=%s  dades=%s\n", UDP_PKG_SIZE, pdu_types[pdu_reg_req.pdu_type], pdu_reg_req.system_id, pdu_reg_req.mac_address, pdu_reg_req.random_number, pdu_reg_req.data);
         }
-        print_status("MSG.  =>  Client passa a l'estat: ");
+        print_status("MSG.  =>  Client passa a l'estat ");
         packets_sent++;
         // Wait for a response from the server
         fd_set read_fds;
@@ -393,9 +393,9 @@ void connection_phase(char random_number[7])
             {
             case REGISTER_ACK: // 0x02
                 status = REGISTERED;
-                print_status("MSG.  =>  Equip passa a l'estat: ");
+                print_status("MSG.  =>  Equip passa a l'estat ");
                 print_msg("INFO  =>  Acceptada subscripció amb servidor: ");
-                printf("%s\n \t(id: %s, mac: %s, alea:%s, port tcp: %s)\n", user_config.nms_id, received_reg_pdu.system_id, received_reg_pdu.mac_address, received_reg_pdu.random_number, user_config.nms_udp_port);
+                printf("%s\n \t\t\t(id: %s, mac: %s, alea:%s, port tcp: %s)\n", user_config.nms_id, received_reg_pdu.system_id, received_reg_pdu.mac_address, received_reg_pdu.random_number, user_config.nms_udp_port);
 
                 alive_phase(sockfd_udp, status, user_config, server_address_udp, received_reg_pdu, debug, boot_name);
                 break;
@@ -545,7 +545,7 @@ void alive_phase()
                     if (check_equal_pdu_udp(received_alive_pdu, received_reg_pdu) == 0)
                     {
                         print_msg("INFO  =>  Error recepció paquet UDP. Dades servidor incorrecte");
-                        printf("\n \t(correcte: id= %s, mac= %s, alea=%s)\n", received_reg_pdu.system_id, received_reg_pdu.mac_address, received_reg_pdu.random_number);
+                        printf("\n \t\t\t(correcte: id=%s, ip=%s mac=%s, alea=%s)\n", received_reg_pdu.system_id, inet_ntoa(server_address_udp.sin_addr), received_reg_pdu.mac_address, received_reg_pdu.random_number);
                         non_confirmated_alives += 1;
                         if (non_confirmated_alives >= S)
                         {
@@ -561,7 +561,7 @@ void alive_phase()
                             if (status == REGISTERED)
                             {
                                 status = SEND_ALIVE;
-                                print_status("MSG.  =>  Equip passa a l'estat: ");
+                                print_status("MSG.  =>  Equip passa a l'estat ");
                             }
                             if (check_equal_pdu_udp(received_alive_pdu, received_reg_pdu) != 0)
                             {
@@ -604,13 +604,14 @@ void alive_phase()
             non_confirmated_alives += 1;
         }
     }
+    
+    status = DISCONNECTED;
+    print_msg("MSG.  =>  Equip passa a l'estat DISCONNECTED (Sense resposta a 3 ALIVES)\n");
     // After O sent ALIVE_INF without server response(ALIVE_ACK), REGISTER proccess is reseted
     if (registration_attempt > O)
     {
         print_msg("INFO  =>  No es pot contactar amb servidor: localhost\n");
     }
-    status = DISCONNECTED;
-    print_msg("MSG.  =>  Equip passa a l'estat: DISCONNECTED (Sense resposta a 3 ALIVES)\n");
     if (debug == 1)
     {
         print_msg("DEBUG =>  Cancelat temporitzador per enviament alives\n");
