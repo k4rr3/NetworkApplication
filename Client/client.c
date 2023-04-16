@@ -158,7 +158,7 @@ struct cfg user_config;
 struct pdu_udp received_reg_pdu, received_alive_pdu;
 struct sockaddr_in client_address, server_address_udp, server_address_tcp;
 char *boot_name, *file_name;
-int debug, status, sockfd_udp = -1, sockfd_tcp = -1, registration_attempt = 1, current_packet = 0;
+int debug, status, sockfd_udp = -1, sockfd_tcp = -1, registration_attempt = 1, packets_sent = 0;
 pthread_t thread_command, thread_send_alive;
 
 int main(int argc, char *argv[])
@@ -509,7 +509,7 @@ void alive_phase()
     fcntl(sockfd_udp, F_SETFL, flags | O_NONBLOCK);
     pthread_create(&thread_send_alive, NULL, send_alive_inf, NULL);
 
-    current_packet = 0;
+    packets_sent = 0;
     while (status != DISCONNECTED)
     {
         fd_set read_fds;
@@ -553,7 +553,7 @@ void alive_phase()
                         switch (pdu_received_alive[0])
                         {
                         case ALIVE_ACK:
-                            current_packet = 0;
+                            packets_sent = 0;
                             if (status == REGISTERED)
                             {
                                 status = SEND_ALIVE;
@@ -594,13 +594,8 @@ void alive_phase()
                 pthread_join(thread_command, NULL);
             }
         }
-        /*else //// Timeout occurred
-        {
-            //print_msg("TIMEOUT\n");
-        }*/
     }
 
-    status = DISCONNECTED;
     // After O sent ALIVE_INF without server response(ALIVE_ACK), REGISTER proccess is reset
     if (registration_attempt > O)
     {
@@ -648,14 +643,14 @@ void *send_alive_inf()
             perror("sendto() failed");
             exit(-1);
         }
-        current_packet += 1;
+        packets_sent += 1;
         if (debug == 1)
         {
             print_msg("DEBUG =>  Enviat: ");
             printf("bytes=%d, comanda=%s id=%s, mac=%s, alea=%s  dades=%s\n", UDP_PKG_SIZE, pdu_types[pdu_alive_inf.pdu_type], pdu_alive_inf.system_id, pdu_alive_inf.mac_address, pdu_alive_inf.random_number, pdu_alive_inf.data);
         }
         sleep(R);
-        if (current_packet >= S)
+        if (packets_sent >= S)
         {
             registration_attempt += 1;
             status = DISCONNECTED;
@@ -884,6 +879,11 @@ void get_cfg()
     FD_SET(sockfd_tcp, &read_fds); // Adds the sockfd file descriptor to the read_fds set
     struct timeval timeout = {W, 0};
     send(sockfd_tcp, pdu_package, sizeof(pdu_package), 0);
+    if (debug == 1)
+    {
+        print_msg("DEBUG =>  Enviat: ");
+        printf("bytes=%d, comanda=%s id=%s, mac=%s, alea=%s  dades=%s\n", UDP_PKG_SIZE, pdu_types[try_send_file_pdu.pdu_type], try_send_file_pdu.system_id, try_send_file_pdu.mac_address, try_send_file_pdu.random_number, try_send_file_pdu.data);
+    }
     int select_status = select(sockfd_tcp + 1, &read_fds, NULL, NULL, &timeout);
     if (select_status == -1)
     {
@@ -904,8 +904,14 @@ void get_cfg()
         }
         pdu_package[has_received_pkg] = '\0';
         struct pdu_tcp serv_response = unpack_pdu_tcp((char *)pdu_package);
+        if (debug == 1)
+        {
+            print_msg("DEBUG =>  Rebut: ");
+            printf("bytes=%d, comanda=%s id=%s, mac=%s, alea=%s  dades=%s\n", UDP_PKG_SIZE, pdu_types[serv_response.pdu_type], serv_response.system_id, serv_response.mac_address, serv_response.random_number, serv_response.data);
+        }
         if (serv_response.pdu_type == GET_ACK)
         {
+            print_msg("INFO  =>  Acceptada petició d'obtenció arxiu de configuració\n");
             err = get_file_by_lines();
         }
         if (err == 0)
