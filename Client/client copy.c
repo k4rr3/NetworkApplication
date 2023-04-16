@@ -158,7 +158,7 @@ struct cfg user_config;
 struct pdu_udp received_reg_pdu, received_alive_pdu;
 struct sockaddr_in client_address, server_address_udp, server_address_tcp;
 char *boot_name, *file_name;
-int debug, status, sockfd_udp = -1, sockfd_tcp = -1, registration_attempt = 1, current_packet = 0;
+int debug, status, sockfd_udp = -1, sockfd_tcp = -1, registration_attempt = 1, non_confirmated_alives = 0;
 pthread_t thread_command, thread_send_alive;
 
 int main(int argc, char *argv[])
@@ -509,8 +509,8 @@ void alive_phase()
     fcntl(sockfd_udp, F_SETFL, flags | O_NONBLOCK);
     pthread_create(&thread_send_alive, NULL, send_alive_inf, NULL);
 
-    current_packet = 0;
-    while (status != DISCONNECTED)
+    non_confirmated_alives = 0;
+    while (status != DISCONNECTED && non_confirmated_alives < S)
     {
         fd_set read_fds;
         FD_ZERO(&read_fds);              // clears the file descriptor set read_fds and initializes it to the empty set.
@@ -532,8 +532,7 @@ void alive_phase()
                 int has_received_pkg = recvfrom(sockfd_udp, pdu_received_alive, UDP_PKG_SIZE, 0, (struct sockaddr *)&server_address_udp, &(socklen_t){sizeof(server_address_udp)});
                 if (has_received_pkg < 0)
                 {
-                    perror("recvfrom() failed");
-                    exit(-3);
+                    non_confirmated_alives += 1;
                 }
                 else
                 {
@@ -547,13 +546,18 @@ void alive_phase()
                     {
                         print_msg("INFO  =>  Error recepció paquet UDP. Dades servidor incorrecte");
                         printf("\n \t\t\t(correcte: id=%s, ip=%s mac=%s, alea=%s)\n", received_reg_pdu.system_id, inet_ntoa(server_address_udp.sin_addr), received_reg_pdu.mac_address, received_reg_pdu.random_number);
+                        non_confirmated_alives += 1;
+                        if (non_confirmated_alives >= S)
+                        {
+                            registration_attempt += 1;
+                        }
                     }
                     else
                     {
                         switch (pdu_received_alive[0])
                         {
                         case ALIVE_ACK:
-                            current_packet = 0;
+                            non_confirmated_alives = 0;
                             if (status == REGISTERED)
                             {
                                 status = SEND_ALIVE;
@@ -581,6 +585,7 @@ void alive_phase()
 
                         case ALIVE_NACK:
                             print_msg("INFO => ALIVE_NACK rebut, es considera com no haver rebut resposta del servidor\n");
+                            non_confirmated_alives += 1;
                             break;
                         }
                     }
@@ -594,13 +599,14 @@ void alive_phase()
                 pthread_join(thread_command, NULL);
             }
         }
-        /*else //// Timeout occurred
+        else //// Timeout occurred
         {
-            //print_msg("TIMEOUT\n");
-        }*/
+            non_confirmated_alives += 1;
+        }
     }
-
+    
     status = DISCONNECTED;
+    sleep(U);
     // After O sent ALIVE_INF without server response(ALIVE_ACK), REGISTER proccess is reset
     if (registration_attempt > O)
     {
@@ -648,20 +654,12 @@ void *send_alive_inf()
             perror("sendto() failed");
             exit(-1);
         }
-        current_packet += 1;
         if (debug == 1)
         {
             print_msg("DEBUG =>  Enviat: ");
             printf("bytes=%d, comanda=%s id=%s, mac=%s, alea=%s  dades=%s\n", UDP_PKG_SIZE, pdu_types[pdu_alive_inf.pdu_type], pdu_alive_inf.system_id, pdu_alive_inf.mac_address, pdu_alive_inf.random_number, pdu_alive_inf.data);
         }
         sleep(R);
-        if (current_packet >= S)
-        {
-            registration_attempt += 1;
-            status = DISCONNECTED;
-            pthread_detach(thread_send_alive);
-            pthread_exit(NULL);
-        }
     }
     return NULL;
 }

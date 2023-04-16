@@ -356,7 +356,6 @@ def tcp_phase(conn, addr):
             if debug == 1:
                 print_time(f"DEBUG =>  Enviat: bytes={TCP_SIZE}, comanda={pdu_types[tcp_pdu.type]}, id={tcp_pdu.id}, mac={tcp_pdu.mac}, alea={tcp_pdu.alea}  dades={tcp_pdu.data}")
             conn.send(tcp_pdu.convert_pdu_to_pkg(TCP_SIZE))
-        #some stuff not working well if the above elif is swaped with this other -> \n
         elif clients[i].ip != addr[0] or clients[i].alea != pdu.alea or clients[i].is_transfering_files:
             tcp_pdu = Pdu(SEND_NACK, '', '000000000000', '000000', 'Rebutjat paquet TCP tipus: SEND_FILE (Dades addicionals de l’equip incorrectes)')
             if debug == 1:
@@ -409,7 +408,6 @@ def tcp_phase(conn, addr):
                 print_time(f"DEBUG =>  Enviat: bytes={TCP_SIZE}, comanda={pdu_types[tcp_pdu.type]}, id={tcp_pdu.id}, mac={tcp_pdu.mac}, alea={tcp_pdu.alea}  dades={tcp_pdu.data}")
             conn.send(tcp_pdu.convert_pdu_to_pkg(TCP_SIZE))
     conn.close()
-    #send-cfg get-cfg
 
 
 def command_line_phase():
